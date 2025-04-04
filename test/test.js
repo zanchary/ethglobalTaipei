@@ -878,4 +878,140 @@ describe("EventTicketing System", function () {
       expect(await ticketNFT.ownerOf(tokenId)).to.equal(buyer2.address);
     });
   });
+
+  describe("QR Code Verification", function () {
+    let eventId;
+    let tokenId;
+  
+    beforeEach(async function () {
+      // Setup: verify organizer, create event, buy ticket
+      await eventTicketing.verifyOrganizer(organizer.address);
+      await eventTicketing.connect(organizer).createEvent(
+        eventName,
+        eventDescription,
+        eventDate,
+        totalTickets,
+        ticketPrice,
+        true,
+        resaleDeadline,
+        "ipfs://eventURI",
+        false
+      );
+      eventId = 0;
+      
+      // Buy ticket
+      await eventTicketing.connect(buyer1).buyTicket(eventId, { value: ticketPrice });
+      tokenId = 0;
+    });
+    
+    it("Should generate valid QR code data", async function () {
+      const qrData = await eventTicketing.generateQRCodeData(tokenId);
+      
+      // Check that QR data is not empty
+      expect(qrData).to.not.be.empty;
+      
+      // Verify the QR code with a 5-minute timeout
+      const result = await eventTicketing.verifyQRCode(qrData, 300);
+      
+      // Check verification result
+      expect(result.isValid).to.be.true;
+      expect(result.tokenId).to.equal(tokenId);
+      expect(result.eventId).to.equal(eventId);
+      expect(result.owner).to.equal(buyer1.address);
+    });
+    
+    it("Should verify valid QR code data", async function () {
+      const qrData = await eventTicketing.generateQRCodeData(tokenId);
+    
+      // Verify the QR code with a 5-minute timeout
+      const result = await eventTicketing.verifyQRCode(qrData, 300);
+    
+      // Log the verification result
+      console.log("Verification result:", {
+        isValid: result.isValid,
+        tokenId: result.tokenId.toString(),
+        eventId: result.eventId.toString(),
+        owner: result.owner
+      });
+
+      // Check verification result
+      expect(result.isValid).to.be.true;
+      expect(result.tokenId).to.equal(tokenId);
+      expect(result.eventId).to.equal(eventId);
+      expect(result.owner).to.equal(buyer1.address);
+    });
+    
+    it("Should reject QR code for used tickets", async function () {
+      // Generate QR code
+      const qrData = await eventTicketing.generateQRCodeData(tokenId);
+      
+      // Mark ticket as used
+      await eventTicketing.connect(organizer).useTicket(tokenId);
+      
+      // Verify the QR code
+      const result = await eventTicketing.verifyQRCode(qrData, 300);
+      
+      // Verification should fail
+      expect(result.isValid).to.be.false;
+    });
+    
+    it("Should reject expired QR codes", async function () {
+      // Generate QR code
+      const qrData = await eventTicketing.generateQRCodeData(tokenId);
+      
+      // Fast forward time by 10 minutes
+      await time.increase(600);
+      
+      // Verify with a 5-minute timeout
+      const result = await eventTicketing.verifyQRCode(qrData, 300);
+      
+      // Verification should fail due to timeout
+      expect(result.isValid).to.be.false;
+    });
+    
+    it("Should reject tampered QR codes", async function () {
+      // First, get the current QR data for reference
+      const qrData = await eventTicketing.generateQRCodeData(tokenId);
+      
+      // Decode the original data to get its components
+      const decoded = ethers.AbiCoder.defaultAbiCoder().decode(
+        ["uint256", "uint256", "uint256", "bytes32"],
+        qrData
+      );
+      
+      // Create tampered version with different event ID but same checksum
+      // This should fail verification because the checksum won't match
+      const tamperedData = ethers.AbiCoder.defaultAbiCoder().encode(
+        ["uint256", "uint256", "uint256", "bytes32"],
+        [decoded[0], 999, decoded[2], decoded[3]]
+      );
+      
+      // Verify the tampered QR code
+      const result = await eventTicketing.verifyQRCode(tamperedData, 300);
+      
+      // Verification should fail
+      expect(result.isValid).to.be.false;
+    });
+    
+    it("Should work with new QR code after ticket transfer", async function () {
+      // Transfer ticket to buyer2
+      await ticketNFT.connect(buyer1).transferFrom(buyer1.address, buyer2.address, tokenId);
+      
+      // Generate new QR code with new owner
+      const newQrData = await eventTicketing.generateQRCodeData(tokenId);
+      
+      // Verify the new QR code
+      const result = await eventTicketing.verifyQRCode(newQrData, 300);
+      console.log("Verification result after transfer:", {
+        isValid: result.isValid,
+        tokenId: result.tokenId.toString(),
+        eventId: result.eventId.toString(),
+        owner: result.owner
+      });
+    
+      // Verification should succeed with new owner
+      expect(result.isValid).to.be.true;
+      expect(result.owner).to.equal(buyer2.address);
+    });
+  });
 });

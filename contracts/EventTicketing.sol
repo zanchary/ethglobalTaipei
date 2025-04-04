@@ -320,31 +320,31 @@ contract EventTicketing is Ownable, ReentrancyGuard {
         // Check ownership
         address owner = ticketNFT.ownerOf(tokenId);
         require(owner == msg.sender, "Not ticket owner");
-        
+
         // Get ticket info from the NFT contract
         EventTicketNFT.TicketInfo memory ticket = ticketNFT.getTicketInfo(tokenId);
         uint256 eventId = ticket.eventId;
         Event storage evt = events[eventId];
-        
+
         require(evt.isActive, "Event is not active");
         require(evt.isResellAllowed, "Resale not allowed for this event");
         require(!ticketNFT.isTicketUsed(tokenId), "Ticket has already been used");
         require(block.timestamp < evt.resaleDeadline, "Resale deadline passed");
-        
+
         // Check that resale price is not too high
         uint256 maxPrice = ticket.purchasePrice + ((ticket.purchasePrice * maxResalePriceIncrease) / 10000);
         require(price <= maxPrice, "Resale price too high");
-        
+
         // REMOVE THIS LINE - Don't call approve from within the contract:
         // ticketNFT.approve(address(this), tokenId);
-        
+
         // List the ticket for resale
         resaleTickets[tokenId] = ResaleTicket({
             tokenId: tokenId,
             price: price,
             isListed: true
         });
-        
+
         emit TicketListedForResale(tokenId, price);
     }
     
@@ -592,6 +592,157 @@ contract EventTicketing is Ownable, ReentrancyGuard {
         }
         
         return string(buffer);
+    }
+
+    function generateQRCodeData(uint256 tokenId) public view returns (bytes memory) {
+        address owner = ticketNFT.ownerOf(tokenId);
+        EventTicketNFT.TicketInfo memory ticket = ticketNFT.getTicketInfo(tokenId);
+        uint256 eventId = ticket.eventId;
+        uint256 timestamp = block.timestamp;
+        
+        bytes32 checksum = keccak256(abi.encodePacked(tokenId, owner, eventId, address(this), timestamp));
+        
+        return abi.encode(tokenId, eventId, timestamp, checksum);
+    }
+
+    function verifyQRCode(bytes memory qrData, uint256 maxAgeSeconds) public view returns (
+        bool isValid,
+        uint256 tokenId,
+        uint256 eventId,
+        address owner
+    ) {
+        uint256 timestamp;
+        bytes32 receivedChecksum;
+        (tokenId, eventId, timestamp, receivedChecksum) = abi.decode(qrData, (uint256, uint256, uint256, bytes32));
+
+        if (block.timestamp > timestamp + maxAgeSeconds) {
+            return (false, tokenId, eventId, address(0));
+        }
+
+        try ticketNFT.ownerOf(tokenId) returns (address ticketOwner) {
+            owner = ticketOwner;
+        } catch {
+            return (false, tokenId, eventId, address(0));
+        }
+
+        EventTicketNFT.TicketInfo memory ticket = ticketNFT.getTicketInfo(tokenId);
+        if (ticket.eventId != eventId || ticketNFT.isTicketUsed(tokenId)) {
+            return (false, tokenId, eventId, owner);
+        }
+
+        bytes32 calculatedChecksum = keccak256(abi.encodePacked(tokenId, owner, eventId, address(this), timestamp));
+        isValid = (calculatedChecksum == receivedChecksum);
+
+        return (isValid, tokenId, eventId, owner);
+    }
+
+    // Helper function to convert bytes32 to string
+    function _bytes32ToString(bytes32 data) internal pure returns (string memory) {
+        return string(abi.encodePacked("0x", _toHexString(uint256(data), 32)));
+    }
+
+    // Helper function to convert string to bytes32
+    function _stringToBytes32(string memory str) internal pure returns (bytes32 result) {
+        // Remove "0x" prefix if present
+        if (bytes(str)[0] == "0" && bytes(str)[1] == "x") {
+            str = _substring(str, 2, bytes(str).length);
+        }
+
+        bytes memory strBytes = bytes(str);
+        assembly {
+            result := mload(add(str, 32))
+        }
+    }
+
+    // Helper function to split a string
+    function _split(string memory str, string memory delimiter) internal pure returns (string[] memory) {
+        // Count delimiters to determine array size
+        uint count = 1;
+        bytes memory strBytes = bytes(str);
+        bytes memory delimiterBytes = bytes(delimiter);
+
+        for (uint i = 0; i < strBytes.length - delimiterBytes.length + 1; i++) {
+            bool found = true;
+            for (uint j = 0; j < delimiterBytes.length; j++) {
+                if (strBytes[i + j] != delimiterBytes[j]) {
+                    found = false;
+                    break;
+                }
+            }
+            if (found) {
+                count++;
+                i += delimiterBytes.length - 1;
+            }
+        }
+
+        // Split string
+        string[] memory parts = new string[](count);
+        uint partIndex = 0;
+        uint lastIndex = 0;
+
+        for (uint i = 0; i < strBytes.length - delimiterBytes.length + 1; i++) {
+            bool found = true;
+            for (uint j = 0; j < delimiterBytes.length; j++) {
+                if (strBytes[i + j] != delimiterBytes[j]) {
+                    found = false;
+                    break;
+                }
+            }
+
+            if (found) {
+                parts[partIndex] = _substring(str, lastIndex, i);
+                lastIndex = i + delimiterBytes.length;
+                partIndex++;
+                i += delimiterBytes.length - 1;
+            }
+        }
+
+        // Add the last part
+        parts[partIndex] = _substring(str, lastIndex, strBytes.length);
+
+        return parts;
+    }
+
+    // Helper function to get substring
+    function _substring(string memory str, uint startIndex, uint endIndex) internal pure returns (string memory) {
+        bytes memory strBytes = bytes(str);
+        bytes memory result = new bytes(endIndex - startIndex);
+        for (uint i = startIndex; i < endIndex; i++) {
+            result[i - startIndex] = strBytes[i];
+        }
+        return string(result);
+    }
+
+    // Helper function to convert string to uint
+    function _stringToUint(string memory s) internal pure returns (uint256) {
+        bytes memory b = bytes(s);
+        uint256 result = 0;
+        for (uint i = 0; i < b.length; i++) {
+            uint8 c = uint8(b[i]);
+            if (c >= 48 && c <= 57) {
+                result = result * 10 + (c - 48);
+            }
+        }
+        return result;
+    }
+
+    // Helper function for hex representation
+    function _toHexString(uint256 value, uint256 length) internal pure returns (string memory) {
+        bytes memory buffer = new bytes(2 * length);
+        for (uint256 i = 2 * length; i > 0; i--) {
+            buffer[i - 1] = _toHexChar(uint8(value & 0xf));
+            value >>= 4;
+        }
+        return string(buffer);
+    }
+
+    // Helper for hex character conversion
+    function _toHexChar(uint8 value) internal pure returns (bytes1) {
+        if (value < 10) {
+            return bytes1(uint8(bytes1('0')) + value);
+        } else {
+            return bytes1(uint8(bytes1('a')) + value - 10);
+        }
     }
     
     /**
