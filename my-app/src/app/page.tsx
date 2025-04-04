@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import Webcam from "react-webcam";
 import jsQR from "jsqr";
+import { Button } from "@/components/ui/button";
 
 export default function Page() {
   const [cameraActive, setCameraActive] = useState(false);
@@ -56,15 +57,8 @@ export default function Page() {
   }, [cameraActive, captureAndScan]);
 
   return (
-    <div className="flex items-center w-full justify-center flex-col h-[100dvh] bg-black safe-area-inset">
-      {!cameraActive && (
-        <button
-          onClick={handleOpenCamera}
-          className="px-4 py-2 bg-blue-500 text-white rounded"
-        >
-          Open
-        </button>
-      )}
+    <div className="flex items-center w-full justify-center flex-col h-[100dvh] bg-white text-black safe-area-inset">
+      {!cameraActive && <Button onClick={handleOpenCamera}>Open</Button>}
       {cameraActive && (
         <div className="w-48 h-48 flex flex-col items-center">
           <Webcam
