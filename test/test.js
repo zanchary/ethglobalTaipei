@@ -2,10 +2,16 @@ const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
-// Check if we're using ethers v5 or v6 and import accordingly
-describe("EventTicketing", function () {
+describe("EventTicketing System", function () {
+  // Contract instances
+  let EventTicketNFT;
+  let WorldIDVerifier;
   let EventTicketing;
+  let ticketNFT;
+  let worldIDVerifier;
   let eventTicketing;
+  
+  // Users
   let owner;
   let organizer;
   let buyer1;
@@ -18,10 +24,17 @@ describe("EventTicketing", function () {
   const ticketPrice = ethers.parseEther("0.1"); // 0.1 ETH
   const totalTickets = 100;
   
+  // Mock World ID
+  let mockWorldID;
+  
   // Timestamp constants
   let currentTimestamp;
   let eventDate;
   let resaleDeadline;
+  
+  // World ID constants
+  const appId = "app_staging_0123456789";
+  const actionId = "purchase-ticket";
   
   beforeEach(async function () {
     // Get current block timestamp
@@ -32,20 +45,73 @@ describe("EventTicketing", function () {
     // Get signers
     [owner, organizer, buyer1, buyer2, ...addr] = await ethers.getSigners();
     
-    // Deploy contract
+    // Deploy mock World ID contract
+    const MockWorldID = await ethers.getContractFactory("MockWorldID");
+    mockWorldID = await MockWorldID.deploy();
+    await mockWorldID.waitForDeployment();
+    
+    // Deploy NFT contract
+    EventTicketNFT = await ethers.getContractFactory("EventTicketNFT");
+    ticketNFT = await EventTicketNFT.deploy();
+    await ticketNFT.waitForDeployment();
+    
+    // Deploy World ID verifier
+    WorldIDVerifier = await ethers.getContractFactory("WorldIDVerifier");
+    worldIDVerifier = await WorldIDVerifier.deploy(mockWorldID.getAddress(), appId);
+    await worldIDVerifier.waitForDeployment();
+    
+    // Register the action ID
+    await worldIDVerifier.registerAction(actionId);
+    
+    // Deploy main contract
     EventTicketing = await ethers.getContractFactory("EventTicketing");
-    eventTicketing = await EventTicketing.deploy();
-    await eventTicketing.waitForDeployment(); // Make sure contract is fully deployed
+    eventTicketing = await EventTicketing.deploy(
+      await ticketNFT.getAddress(),
+      await worldIDVerifier.getAddress()
+    );
+    await eventTicketing.waitForDeployment();
+    
+    // Grant MINTER_ROLE and URI_SETTER_ROLE to the main contract
+    const MINTER_ROLE = await ticketNFT.MINTER_ROLE();
+    const URI_SETTER_ROLE = await ticketNFT.URI_SETTER_ROLE();
+    await ticketNFT.grantRole(MINTER_ROLE, await eventTicketing.getAddress());
+    await ticketNFT.grantRole(URI_SETTER_ROLE, await eventTicketing.getAddress());
   });
+
+  // Helper function to simulate World ID verification
+  async function verifyWithWorldID(user) {
+    // Generate mock verification parameters
+    const signal = user.address;
+    const root = ethers.toBigInt("0x1234567890123456789012345678901234567890123456789012345678901234");
+    const nullifierHash = ethers.toBigInt("0x2345678901234567890123456789012345678901234567890123456789012345");
+    const proof = Array(8).fill(ethers.toBigInt("0x1111111111111111111111111111111111111111111111111111111111111111"));
+    
+    // Verify the user with World ID
+    await worldIDVerifier.connect(user).verifyAndRegister(
+      signal,
+      root,
+      nullifierHash,
+      actionId,
+      proof
+    );
+  }
   
   describe("Contract Deployment", function () {
     it("Should set the right owner", async function () {
       expect(await eventTicketing.owner()).to.equal(owner.address);
     });
     
-    it("Should initialize with correct token name and symbol", async function () {
-      expect(await eventTicketing.name()).to.equal("WorldTickets");
-      expect(await eventTicketing.symbol()).to.equal("WTKT");
+    it("Should connect to the correct NFT contract", async function () {
+      expect(await eventTicketing.ticketNFT()).to.equal(await ticketNFT.getAddress());
+    });
+    
+    it("Should connect to the correct World ID verifier", async function () {
+      expect(await eventTicketing.worldIDVerifier()).to.equal(await worldIDVerifier.getAddress());
+    });
+    
+    it("Should initialize with correct token name and symbol in NFT contract", async function () {
+      expect(await ticketNFT.name()).to.equal("WorldTickets");
+      expect(await ticketNFT.symbol()).to.equal("WTKT");
     });
     
     it("Should set owner as platform admin", async function () {
@@ -124,15 +190,38 @@ describe("EventTicketing", function () {
           ticketPrice,
           true, // Allow resale
           resaleDeadline,
-          "ipfs://eventURI"
+          "ipfs://eventURI",
+          false // World ID not required
         )
       ).to.emit(eventTicketing, "EventCreated")
-       .withArgs(0, eventName, totalTickets, ticketPrice, organizer.address, eventDate);
+       .withArgs(0, eventName, totalTickets, ticketPrice, organizer.address, eventDate, false);
       
       // Check event details
       const eventDetails = await eventTicketing.getEventDetails(0);
       expect(eventDetails.name).to.equal(eventName);
       expect(eventDetails.totalTickets).to.equal(totalTickets);
+      expect(eventDetails.worldIdRequired).to.be.false;
+    });
+    
+    it("Should allow creating events that require World ID verification", async function () {
+      await expect(
+        eventTicketing.connect(organizer).createEvent(
+          "World ID Required Event",
+          "Verification required",
+          eventDate,
+          totalTickets,
+          ticketPrice,
+          true,
+          resaleDeadline,
+          "ipfs://eventURI",
+          true // World ID required
+        )
+      ).to.emit(eventTicketing, "EventCreated")
+       .withArgs(0, "World ID Required Event", totalTickets, ticketPrice, organizer.address, eventDate, true);
+      
+      // Check event details
+      const eventDetails = await eventTicketing.getEventDetails(0);
+      expect(eventDetails.worldIdRequired).to.be.true;
     });
     
     it("Should prevent unverified organizers from creating events", async function () {
@@ -145,7 +234,8 @@ describe("EventTicketing", function () {
           ticketPrice,
           true,
           resaleDeadline,
-          "ipfs://eventURI"
+          "ipfs://eventURI",
+          false
         )
       ).to.be.revertedWith("Not a verified organizer");
     });
@@ -161,7 +251,8 @@ describe("EventTicketing", function () {
           ticketPrice,
           true,
           resaleDeadline,
-          "ipfs://eventURI"
+          "ipfs://eventURI",
+          false
         )
       ).to.be.revertedWith("Event date must be in the future");
       
@@ -175,7 +266,8 @@ describe("EventTicketing", function () {
           ticketPrice,
           true,
           resaleDeadline,
-          "ipfs://eventURI"
+          "ipfs://eventURI",
+          false
         )
       ).to.be.revertedWith("Total tickets must be greater than zero");
       
@@ -189,9 +281,66 @@ describe("EventTicketing", function () {
           0, // Zero price
           true,
           resaleDeadline,
-          "ipfs://eventURI"
+          "ipfs://eventURI",
+          false
         )
       ).to.be.revertedWith("Ticket price must be greater than zero");
+    });
+  });
+  
+  describe("World ID Verification", function () {
+    beforeEach(async function () {
+      // Verify organizer
+      await eventTicketing.verifyOrganizer(organizer.address);
+    });
+    
+    it("Should verify a user with World ID", async function () {
+      await verifyWithWorldID(buyer1);
+      expect(await worldIDVerifier.isVerified(buyer1.address)).to.be.true;
+    });
+    
+    it("Should allow verified users to buy tickets for events requiring verification", async function () {
+      // Create an event requiring World ID verification
+      await eventTicketing.connect(organizer).createEvent(
+        "Verified Event",
+        "Verification required",
+        eventDate,
+        totalTickets,
+        ticketPrice,
+        true,
+        resaleDeadline,
+        "ipfs://eventURI",
+        true // Require World ID
+      );
+      
+      // Verify the user
+      await verifyWithWorldID(buyer1);
+      
+      // Buy ticket
+      await eventTicketing.connect(buyer1).buyTicket(0, { value: ticketPrice });
+      
+      // Check ticket was minted
+      expect(await ticketNFT.ownerOf(0)).to.equal(buyer1.address);
+    });
+    
+    it("Should prevent unverified users from buying tickets for events requiring verification", async function () {
+      // Create an event requiring World ID verification
+      await eventTicketing.connect(organizer).createEvent(
+        "Verified Event",
+        "Verification required",
+        eventDate,
+        totalTickets,
+        ticketPrice,
+        true,
+        resaleDeadline,
+        "ipfs://eventURI",
+        true // Require World ID
+      );
+      
+      // Try to buy ticket without verification
+      await expect(
+        eventTicketing.connect(buyer1).buyTicket(0, { value: ticketPrice })
+      ).to.be.revertedWith("World ID verification required");
     });
   });
   
@@ -209,7 +358,8 @@ describe("EventTicketing", function () {
         ticketPrice,
         true,
         resaleDeadline,
-        "ipfs://eventURI"
+        "ipfs://eventURI",
+        false // No World ID required
       );
       eventId = 0;
     });
@@ -226,13 +376,13 @@ describe("EventTicketing", function () {
        .withArgs(0, eventId, buyer1.address, ticketPrice);
        
       // Check ticket ownership
-      expect(await eventTicketing.ownerOf(0)).to.equal(buyer1.address);
+      expect(await ticketNFT.ownerOf(0)).to.equal(buyer1.address);
       
       // Check ticket details
-      const ticketDetails = await eventTicketing.getTicketDetails(0);
-      expect(ticketDetails.eventId).to.equal(eventId);
-      expect(ticketDetails.purchasePrice).to.equal(ticketPrice);
-      expect(ticketDetails.isUsed).to.be.false;
+      const ticketInfo = await ticketNFT.getTicketInfo(0);
+      expect(ticketInfo.eventId).to.equal(eventId);
+      expect(ticketInfo.purchasePrice).to.equal(ticketPrice);
+      expect(ticketInfo.isUsed).to.be.false;
       
       // Check loyalty points
       expect(await eventTicketing.getUserLoyaltyPoints(buyer1.address)).to.equal(1);
@@ -273,7 +423,8 @@ describe("EventTicketing", function () {
         ticketPrice,
         true,
         resaleDeadline,
-        "ipfs://limitedEventURI"
+        "ipfs://limitedEventURI",
+        false
       );
       const limitedEventId = 1;
       
@@ -303,7 +454,8 @@ describe("EventTicketing", function () {
         ticketPrice,
         true, // Allow resale
         resaleDeadline,
-        "ipfs://eventURI"
+        "ipfs://eventURI",
+        false
       );
       eventId = 0;
       
@@ -313,20 +465,26 @@ describe("EventTicketing", function () {
     });
     
     it("Should allow ticket owners to list tickets for resale", async function () {
+      // Approve the event ticketing contract to transfer the NFT
+      await ticketNFT.connect(buyer1).approve(await eventTicketing.getAddress(), tokenId);
+      
       await expect(
         eventTicketing.connect(buyer1).listTicketForResale(tokenId, resalePrice)
       ).to.emit(eventTicketing, "TicketListedForResale")
        .withArgs(tokenId, resalePrice);
        
       // Check ticket is listed
-      const ticketDetails = await eventTicketing.getTicketDetails(tokenId);
-      expect(ticketDetails.isForSale).to.be.true;
-      expect(ticketDetails.resalePrice).to.equal(resalePrice);
+      const resaleInfo = await eventTicketing.resaleTickets(tokenId);
+      expect(resaleInfo.isListed).to.be.true;
+      expect(resaleInfo.price).to.equal(resalePrice);
     });
     
     it("Should prevent listing tickets for resale at too high a price", async function () {
-      // Try to list at 60% markup (max is 50%)
-      const tooHighPrice = ethers.parseEther("1.0"); // Assuming this is too high based on your maxResalePriceIncrease
+      // Approve the event ticketing contract to transfer the NFT
+      await ticketNFT.connect(buyer1).approve(await eventTicketing.getAddress(), tokenId);
+      
+      // Try to list at a very high markup
+      const tooHighPrice = ethers.parseEther("1.0");
       
       await expect(
         eventTicketing.connect(buyer1).listTicketForResale(tokenId, tooHighPrice)
@@ -335,6 +493,7 @@ describe("EventTicketing", function () {
     
     it("Should allow users to buy resale tickets", async function () {
       // List ticket for resale
+      await ticketNFT.connect(buyer1).approve(await eventTicketing.getAddress(), tokenId);
       await eventTicketing.connect(buyer1).listTicketForResale(tokenId, resalePrice);
       
       // Track balances before purchase
@@ -348,11 +507,11 @@ describe("EventTicketing", function () {
        .withArgs(tokenId, buyer1.address, buyer2.address, resalePrice);
        
       // Check new owner
-      expect(await eventTicketing.ownerOf(tokenId)).to.equal(buyer2.address);
+      expect(await ticketNFT.ownerOf(tokenId)).to.equal(buyer2.address);
       
       // Check ticket is no longer for sale
-      const ticketDetails = await eventTicketing.getTicketDetails(tokenId);
-      expect(ticketDetails.isForSale).to.be.false;
+      const resaleInfo = await eventTicketing.resaleTickets(tokenId);
+      expect(resaleInfo.isListed).to.be.false;
       
       // Check fee distribution - updated for ethers v6
       const platformFee = (resalePrice * 200n) / 10000n; // 2% fee
@@ -373,19 +532,20 @@ describe("EventTicketing", function () {
     
     it("Should allow owners to cancel resale listings", async function () {
       // List ticket for resale
+      await ticketNFT.connect(buyer1).approve(await eventTicketing.getAddress(), tokenId);
       await eventTicketing.connect(buyer1).listTicketForResale(tokenId, resalePrice);
       
       // Cancel listing
       await eventTicketing.connect(buyer1).cancelResaleListing(tokenId);
       
       // Check ticket is no longer for sale
-      const ticketDetails = await eventTicketing.getTicketDetails(tokenId);
-      expect(ticketDetails.isForSale).to.be.false;
-      expect(ticketDetails.resalePrice).to.equal(0);
+      const resaleInfo = await eventTicketing.resaleTickets(tokenId);
+      expect(resaleInfo.isListed).to.be.false;
     });
     
     it("Should prevent buying your own resale ticket", async function () {
       // List ticket for resale
+      await ticketNFT.connect(buyer1).approve(await eventTicketing.getAddress(), tokenId);
       await eventTicketing.connect(buyer1).listTicketForResale(tokenId, resalePrice);
       
       // Try to buy own ticket
@@ -410,7 +570,8 @@ describe("EventTicketing", function () {
         ticketPrice,
         true,
         resaleDeadline,
-        "ipfs://eventURI"
+        "ipfs://eventURI",
+        false
       );
       eventId = 0;
       
@@ -423,12 +584,11 @@ describe("EventTicketing", function () {
       // Mark ticket as used
       await expect(
         eventTicketing.connect(organizer).useTicket(tokenId)
-      ).to.emit(eventTicketing, "TicketUsed")
+      ).to.emit(ticketNFT, "TicketUsed")
        .withArgs(tokenId, eventId);
        
       // Check ticket is marked as used
-      const ticketDetails = await eventTicketing.getTicketDetails(tokenId);
-      expect(ticketDetails.isUsed).to.be.true;
+      expect(await ticketNFT.isTicketUsed(tokenId)).to.be.true;
       
       // Check attendance record
       expect(await eventTicketing.hasAttended(eventId, buyer1.address)).to.be.true;
@@ -452,18 +612,6 @@ describe("EventTicketing", function () {
         eventTicketing.connect(organizer).useTicket(tokenId)
       ).to.be.revertedWith("Ticket already used");
     });
-    
-    it("Should allow organizers to update ticket URI", async function () {
-      const newURI = "ipfs://newTicketURI";
-      await eventTicketing.connect(organizer).setTicketURI(tokenId, newURI);
-      expect(await eventTicketing.tokenURI(tokenId)).to.equal(newURI);
-    });
-    
-    it("Should prevent non-organizers from updating ticket URI", async function () {
-      await expect(
-        eventTicketing.connect(buyer1).setTicketURI(tokenId, "ipfs://unauthorizedURI")
-      ).to.be.revertedWith("Not the event organizer");
-    });
   });
   
   describe("Event Cancellation and Refunds", function () {
@@ -481,7 +629,8 @@ describe("EventTicketing", function () {
         ticketPrice,
         true,
         resaleDeadline,
-        "ipfs://eventURI"
+        "ipfs://eventURI",
+        false
       );
       eventId = 0;
       
@@ -535,8 +684,7 @@ describe("EventTicketing", function () {
       );
       
       // Check ticket is marked as used (to prevent double refunds)
-      const ticketDetails = await eventTicketing.getTicketDetails(tokenId);
-      expect(ticketDetails.isUsed).to.be.true;
+      expect(await ticketNFT.isTicketUsed(tokenId)).to.be.true;
     });
     
     it("Should prevent claiming refunds for active events", async function () {
@@ -574,7 +722,8 @@ describe("EventTicketing", function () {
         ticketPrice,
         true,
         resaleDeadline,
-        "ipfs://eventURI"
+        "ipfs://eventURI",
+        false
       );
       eventId = 0;
       
@@ -606,17 +755,7 @@ describe("EventTicketing", function () {
       expect(eventDetails.resaleDeadline).to.equal(resaleDeadline);
       expect(eventDetails.eventURI).to.equal("ipfs://eventURI");
       expect(eventDetails.isActive).to.be.true;
-    });
-    
-    it("Should return correct ticket details", async function () {
-      const ticketDetails = await eventTicketing.getTicketDetails(tokenId);
-      
-      expect(ticketDetails.eventId).to.equal(eventId);
-      expect(ticketDetails.ticketIndex).to.equal(0);
-      expect(ticketDetails.purchasePrice).to.equal(ticketPrice);
-      expect(ticketDetails.isUsed).to.be.false;
-      expect(ticketDetails.isForSale).to.be.false;
-      expect(ticketDetails.resalePrice).to.equal(0);
+      expect(eventDetails.worldIdRequired).to.be.false;
     });
   });
   
@@ -636,7 +775,8 @@ describe("EventTicketing", function () {
         ticketPrice,
         true,
         resaleDeadline,
-        "ipfs://eventURI"
+        "ipfs://eventURI",
+        false
       );
       eventId = 0;
       
@@ -655,6 +795,9 @@ describe("EventTicketing", function () {
     });
     
     it("Should prevent listing tickets for resale after deadline", async function () {
+      // Approve the event ticketing contract to transfer the NFT
+      await ticketNFT.connect(buyer1).approve(await eventTicketing.getAddress(), tokenId);
+      
       // Fast forward time to after resale deadline
       await time.increaseTo(resaleDeadline + 1);
       
@@ -664,6 +807,9 @@ describe("EventTicketing", function () {
     });
     
     it("Should prevent buying resale tickets after deadline", async function () {
+      // Approve the event ticketing contract to transfer the NFT
+      await ticketNFT.connect(buyer1).approve(await eventTicketing.getAddress(), tokenId);
+      
       // List ticket for resale
       await eventTicketing.connect(buyer1).listTicketForResale(tokenId, resalePrice);
       
@@ -685,7 +831,7 @@ describe("EventTicketing", function () {
     });
   });
   
-  describe("ERC721 Token Transfers", function () {
+  describe("NFT Token Transfers", function () {
     let eventId;
     let tokenId;
     
@@ -700,7 +846,8 @@ describe("EventTicketing", function () {
         ticketPrice,
         true,
         resaleDeadline,
-        "ipfs://eventURI"
+        "ipfs://eventURI",
+        false
       );
       eventId = 0;
       
@@ -709,35 +856,26 @@ describe("EventTicketing", function () {
       tokenId = 0;
     });
     
-    it("Should emit TicketTransferred event on transferFrom", async function () {
-      // Note: If your contract doesn't implement this event, you should check
-      // your contract or modify this test to check for other conditions
-      await eventTicketing.connect(buyer1).transferFrom(buyer1.address, buyer2.address, tokenId);
-      
-      // Verify ownership transfer even if event emission check fails
-      expect(await eventTicketing.ownerOf(tokenId)).to.equal(buyer2.address);
+    it("Should transfer ownership when using transferFrom", async function () {
+      await ticketNFT.connect(buyer1).transferFrom(buyer1.address, buyer2.address, tokenId);
+      expect(await ticketNFT.ownerOf(tokenId)).to.equal(buyer2.address);
     });
     
-    it("Should emit TicketTransferred event on safeTransferFrom", async function () {
-      // Use the simpler version first
-      await eventTicketing.connect(buyer1)["safeTransferFrom(address,address,uint256)"](
+    it("Should transfer ownership when using safeTransferFrom", async function () {
+      await ticketNFT.connect(buyer1)["safeTransferFrom(address,address,uint256)"](
         buyer1.address, buyer2.address, tokenId
       );
-      
-      // Verify ownership transfer even if event emission check fails
-      expect(await eventTicketing.ownerOf(tokenId)).to.equal(buyer2.address);
+      expect(await ticketNFT.ownerOf(tokenId)).to.equal(buyer2.address);
     });
     
-    it("Should emit TicketTransferred event on safeTransferFrom with data", async function () {
-      // In ethers v6, we need to use Uint8Array or properly encoded bytes
-      const data = new Uint8Array(Buffer.from("test data"));
+    it("Should transfer ownership when using safeTransferFrom with data", async function () {
+      const data = ethers.toUtf8Bytes("test data");
       
-      await eventTicketing.connect(buyer1)["safeTransferFrom(address,address,uint256,bytes)"](
-      buyer1.address, buyer2.address, tokenId, data
-    );
+      await ticketNFT.connect(buyer1)["safeTransferFrom(address,address,uint256,bytes)"](
+        buyer1.address, buyer2.address, tokenId, data
+      );
       
-      // Verify ownership transfer even if event emission check fails
-      expect(await eventTicketing.ownerOf(tokenId)).to.equal(buyer2.address);
+      expect(await ticketNFT.ownerOf(tokenId)).to.equal(buyer2.address);
     });
   });
 });

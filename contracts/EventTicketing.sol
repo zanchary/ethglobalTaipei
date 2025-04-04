@@ -1,19 +1,25 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
-import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "./EventTicketNFT.sol";
+import "./WorldIDVerifier.sol";
 
 /**
  * @title EventTicketing
- * @dev A smart contract for an event ticketing platform where verified organizers can create events,
- * and tickets are issued as ERC721 NFTs with enhanced features.
+ * @dev Main contract for the event ticketing platform with separated NFT logic
+ * and World ID verification integration
  */
-contract EventTicketing is ERC721URIStorage, Ownable, ReentrancyGuard {
-    // Simple counters without the Counter library
+contract EventTicketing is Ownable, ReentrancyGuard {
+    // Reference to the NFT contract
+    EventTicketNFT public ticketNFT;
+    
+    // Reference to the World ID verifier contract
+    WorldIDVerifier public worldIDVerifier;
+    
+    // Simple counter for event IDs
     uint256 public nextEventId;
-    uint256 public nextTokenId;
     
     // Platform fee percentage (in basis points, 100 = 1%)
     uint256 public platformFeePercentage = 200; // 2% default
@@ -35,23 +41,21 @@ contract EventTicketing is ERC721URIStorage, Ownable, ReentrancyGuard {
         string eventURI; // URI for event metadata/image
         bool isActive; // Whether the event is active or cancelled
         mapping(address => bool) verifiedAttendees; // Track attendance
+        bool worldIdRequired; // Whether World ID verification is required
     }
     
-    // Struct for ticket metadata
-    struct TicketInfo {
-        uint256 eventId;
-        uint256 ticketIndex;
-        uint256 purchasePrice;
-        bool isUsed; // Whether the ticket has been used for entry
-        bool isForSale; // Whether the ticket is listed for resale
-        uint256 resalePrice; // Price if listed for resale
+    // Struct for tickets listed for resale
+    struct ResaleTicket {
+        uint256 tokenId;
+        uint256 price;
+        bool isListed;
     }
     
     // Mapping from event ID to Event details
     mapping(uint256 => Event) public events;
     
-    // Mapping from token ID to ticket info
-    mapping(uint256 => TicketInfo) public ticketInfo;
+    // Mapping from token ID to resale information
+    mapping(uint256 => ResaleTicket) public resaleTickets;
     
     // Mapping from organizer address to verified status
     mapping(address => bool) public verifiedOrganizers;
@@ -62,6 +66,9 @@ contract EventTicketing is ERC721URIStorage, Ownable, ReentrancyGuard {
     // Platform admin address for fee collection
     address payable public platformAdmin;
     
+    // Action ID for World ID verification
+    string public constant WORLD_ID_ACTION = "purchase-ticket";
+    
     // Events for tracking actions
     event EventCreated(
         uint256 indexed eventId,
@@ -69,7 +76,8 @@ contract EventTicketing is ERC721URIStorage, Ownable, ReentrancyGuard {
         uint256 totalTickets,
         uint256 ticketPrice,
         address indexed organizer,
-        uint256 eventDate
+        uint256 eventDate,
+        bool worldIdRequired
     );
     
     event OrganizerVerified(address indexed organizer);
@@ -80,14 +88,6 @@ contract EventTicketing is ERC721URIStorage, Ownable, ReentrancyGuard {
         address indexed buyer,
         uint256 price
     );
-    
-    event TicketTransferred(
-        uint256 indexed tokenId,
-        address indexed from,
-        address indexed to
-    );
-    
-    event TicketUsed(uint256 indexed tokenId, uint256 indexed eventId);
     
     event TicketListedForResale(
         uint256 indexed tokenId,
@@ -112,10 +112,20 @@ contract EventTicketing is ERC721URIStorage, Ownable, ReentrancyGuard {
     event LoyaltyPointsEarned(address indexed user, uint256 points);
     
     /**
-     * @dev Constructor initializes the ERC721 token with name "WorldTickets" and symbol "WTKT".
+     * @dev Constructor for the main ticketing contract
+     * @param _ticketNFT Address of the ticket NFT contract
+     * @param _worldIDVerifier Address of the World ID verifier contract
      */
-    constructor() ERC721("WorldTickets", "WTKT") Ownable(msg.sender) {
+    constructor(
+        address _ticketNFT,
+        address _worldIDVerifier
+    ) Ownable(msg.sender) {
+        ticketNFT = EventTicketNFT(_ticketNFT);
+        worldIDVerifier = WorldIDVerifier(_worldIDVerifier);
         platformAdmin = payable(msg.sender);
+        
+        // Register the purchase ticket action with World ID
+        try worldIDVerifier.registerAction(WORLD_ID_ACTION) {} catch {}
     }
     
     /**
@@ -135,8 +145,20 @@ contract EventTicketing is ERC721URIStorage, Ownable, ReentrancyGuard {
     }
     
     /**
+     * @dev Modifier to check if World ID verification is required and fulfilled
+     */
+    modifier worldIdVerifiedIfRequired(uint256 eventId) {
+        if (events[eventId].worldIdRequired) {
+            require(
+                worldIDVerifier.isVerified(msg.sender),
+                "World ID verification required"
+            );
+        }
+        _;
+    }
+    
+    /**
      * @dev Allows platform admin to verify an organizer.
-     * In a real implementation, this would integrate with World ID verification.
      * @param organizer The address of the organizer to verify.
      */
     function verifyOrganizer(address organizer) external onlyOwner {
@@ -181,6 +203,7 @@ contract EventTicketing is ERC721URIStorage, Ownable, ReentrancyGuard {
      * @param isResellAllowed Whether tickets can be resold.
      * @param resaleDeadline Timestamp after which resale is not allowed.
      * @param eventURI URI for event metadata and image.
+     * @param worldIdRequired Whether World ID verification is required for purchase.
      * @return The ID of the created event.
      */
     function createEvent(
@@ -191,7 +214,8 @@ contract EventTicketing is ERC721URIStorage, Ownable, ReentrancyGuard {
         uint256 ticketPrice,
         bool isResellAllowed,
         uint256 resaleDeadline,
-        string memory eventURI
+        string memory eventURI,
+        bool worldIdRequired
     ) public onlyVerifiedOrganizer returns (uint256) {
         require(totalTickets > 0, "Total tickets must be greater than zero");
         require(ticketPrice > 0, "Ticket price must be greater than zero");
@@ -213,8 +237,17 @@ contract EventTicketing is ERC721URIStorage, Ownable, ReentrancyGuard {
         newEvent.resaleDeadline = resaleDeadline;
         newEvent.eventURI = eventURI;
         newEvent.isActive = true;
+        newEvent.worldIdRequired = worldIdRequired;
         
-        emit EventCreated(eventId, name, totalTickets, ticketPrice, msg.sender, eventDate);
+        emit EventCreated(
+            eventId, 
+            name, 
+            totalTickets, 
+            ticketPrice, 
+            msg.sender, 
+            eventDate,
+            worldIdRequired
+        );
         
         return eventId;
     }
@@ -224,7 +257,13 @@ contract EventTicketing is ERC721URIStorage, Ownable, ReentrancyGuard {
      * @param eventId The ID of the event to buy a ticket for.
      * @return The token ID of the minted ticket.
      */
-    function buyTicket(uint256 eventId) public payable nonReentrant returns (uint256) {
+    function buyTicket(uint256 eventId) 
+        public 
+        payable 
+        nonReentrant 
+        worldIdVerifiedIfRequired(eventId)
+        returns (uint256) 
+    {
         Event storage evt = events[eventId];
         
         require(evt.isActive, "Event is not active");
@@ -247,21 +286,21 @@ contract EventTicketing is ERC721URIStorage, Ownable, ReentrancyGuard {
         (bool paySuccess, ) = payable(evt.organizer).call{value: organizerAmount}("");
         require(paySuccess, "Organizer payment failed");
         
-        // Mint the NFT ticket
-        uint256 tokenId = nextTokenId;
-        nextTokenId++;
+        // Generate ticket URI (in a real system, this would create dynamic metadata)
+        string memory ticketURI = string(abi.encodePacked(
+            evt.eventURI, 
+            "/ticket/", 
+            _toString(ticketIndex)
+        ));
         
-        _mint(msg.sender, tokenId);
-        
-        // Store ticket information
-        ticketInfo[tokenId] = TicketInfo({
-            eventId: eventId,
-            ticketIndex: ticketIndex,
-            purchasePrice: msg.value,
-            isUsed: false,
-            isForSale: false,
-            resalePrice: 0
-        });
+        // Mint the NFT ticket through the NFT contract
+        uint256 tokenId = ticketNFT.mintTicket(
+            msg.sender, 
+            eventId, 
+            ticketIndex, 
+            msg.value,
+            ticketURI
+        );
         
         // Award loyalty points (1 point per purchase)
         loyaltyPoints[msg.sender]++;
@@ -273,88 +312,73 @@ contract EventTicketing is ERC721URIStorage, Ownable, ReentrancyGuard {
     }
     
     /**
-     * @dev Helper function to check if the caller is approved or the owner of the token.
-     * @param spender The address to check.
-     * @param tokenId The ID of the token to check.
-     * @return Whether the spender is approved or owner.
-     */
-    function isApprovedOrOwner(address spender, uint256 tokenId) internal view returns (bool) {
-        address owner = ownerOf(tokenId);
-        return (spender == owner || 
-                getApproved(tokenId) == spender || 
-                isApprovedForAll(owner, spender));
-    }
-    
-    /**
-     * @dev Checks if a token exists by trying to get its owner.
-     * @param tokenId The ID of the token to check.
-     * @return Whether the token exists.
-     */
-    function tokenExists(uint256 tokenId) internal view returns (bool) {
-        if (tokenId >= nextTokenId) {
-            return false;
-        }
-        try this.ownerOf(tokenId) returns (address) {
-            return true;
-        } catch {
-            return false;
-        }
-    }
-    
-    /**
      * @dev Allows ticket owners to list their tickets for resale.
      * @param tokenId The ID of the ticket to resell.
      * @param price The resale price.
      */
     function listTicketForResale(uint256 tokenId, uint256 price) public {
-        require(isApprovedOrOwner(msg.sender, tokenId), "Not ticket owner");
+        // Check ownership
+        address owner = ticketNFT.ownerOf(tokenId);
+        require(owner == msg.sender, "Not ticket owner");
         
-        TicketInfo storage ticket = ticketInfo[tokenId];
+        // Get ticket info from the NFT contract
+        EventTicketNFT.TicketInfo memory ticket = ticketNFT.getTicketInfo(tokenId);
         uint256 eventId = ticket.eventId;
         Event storage evt = events[eventId];
         
         require(evt.isActive, "Event is not active");
         require(evt.isResellAllowed, "Resale not allowed for this event");
-        require(!ticket.isUsed, "Ticket has already been used");
+        require(!ticketNFT.isTicketUsed(tokenId), "Ticket has already been used");
         require(block.timestamp < evt.resaleDeadline, "Resale deadline passed");
         
         // Check that resale price is not too high
         uint256 maxPrice = ticket.purchasePrice + ((ticket.purchasePrice * maxResalePriceIncrease) / 10000);
         require(price <= maxPrice, "Resale price too high");
         
-        ticket.isForSale = true;
-        ticket.resalePrice = price;
+        // REMOVE THIS LINE - Don't call approve from within the contract:
+        // ticketNFT.approve(address(this), tokenId);
+        
+        // List the ticket for resale
+        resaleTickets[tokenId] = ResaleTicket({
+            tokenId: tokenId,
+            price: price,
+            isListed: true
+        });
         
         emit TicketListedForResale(tokenId, price);
     }
-    /**
-     * @dev Custom function to manually track token transfers.
-     * Use this instead of overriding the transfer functions.
-     * @param from The address transferring the token
-     * @param to The address receiving the token
-     * @param tokenId The ID of the transferred token
-     */
-    function _trackTicketTransfer(address from, address to, uint256 tokenId) internal {
-        emit TicketTransferred(tokenId, from, to);
-    }
-
+    
     /**
      * @dev Allows users to buy a resale ticket.
      * @param tokenId The ID of the ticket to purchase.
      */
-    function buyResaleTicket(uint256 tokenId) public payable nonReentrant {
-        TicketInfo storage ticket = ticketInfo[tokenId];
-        require(ticket.isForSale, "Ticket not for sale");
+    function buyResaleTicket(uint256 tokenId) 
+        public 
+        payable 
+        nonReentrant 
+    {
+        ResaleTicket storage resale = resaleTickets[tokenId];
+        require(resale.isListed, "Ticket not for sale");
 
+        // Get ticket info and event details
+        EventTicketNFT.TicketInfo memory ticket = ticketNFT.getTicketInfo(tokenId);
         uint256 eventId = ticket.eventId;
         Event storage evt = events[eventId];
+        
+        // Check if World ID verification is required
+        if (evt.worldIdRequired) {
+            require(
+                worldIDVerifier.isVerified(msg.sender),
+                "World ID verification required"
+            );
+        }
 
         require(evt.isActive, "Event is not active");
         require(block.timestamp < evt.eventDate, "Event has already occurred");
         require(block.timestamp < evt.resaleDeadline, "Resale deadline passed");
-        require(msg.value == ticket.resalePrice, "Incorrect payment");
+        require(msg.value == resale.price, "Incorrect payment");
 
-        address seller = ownerOf(tokenId);
+        address seller = ticketNFT.ownerOf(tokenId);
         require(seller != msg.sender, "Cannot buy your own ticket");
 
         // Calculate platform fee for resale
@@ -369,14 +393,11 @@ contract EventTicketing is ERC721URIStorage, Ownable, ReentrancyGuard {
         (bool paySuccess, ) = payable(seller).call{value: sellerAmount}("");
         require(paySuccess, "Seller payment failed");
 
-        // Transfer the ticket
-        ticket.isForSale = false;
-        ticket.resalePrice = 0;
+        // Update resale status
+        resale.isListed = false;
 
-        _transfer(seller, msg.sender, tokenId);
-
-        // Track the transfer with our custom event
-        _trackTicketTransfer(seller, msg.sender, tokenId);
+        // Transfer the NFT from seller to buyer
+        ticketNFT.safeTransferFrom(seller, msg.sender, tokenId);
 
         emit TicketResold(tokenId, seller, msg.sender, msg.value);
     }
@@ -386,13 +407,14 @@ contract EventTicketing is ERC721URIStorage, Ownable, ReentrancyGuard {
      * @param tokenId The ID of the ticket to delist.
      */
     function cancelResaleListing(uint256 tokenId) public {
-        require(isApprovedOrOwner(msg.sender, tokenId), "Not ticket owner");
+        // Check ownership
+        address owner = ticketNFT.ownerOf(tokenId);
+        require(owner == msg.sender, "Not ticket owner");
         
-        TicketInfo storage ticket = ticketInfo[tokenId];
-        require(ticket.isForSale, "Ticket not listed for resale");
+        ResaleTicket storage resale = resaleTickets[tokenId];
+        require(resale.isListed, "Ticket not listed for resale");
         
-        ticket.isForSale = false;
-        ticket.resalePrice = 0;
+        resale.isListed = false;
     }
     
     /**
@@ -400,21 +422,24 @@ contract EventTicketing is ERC721URIStorage, Ownable, ReentrancyGuard {
      * @param tokenId The ID of the ticket to mark as used.
      */
     function useTicket(uint256 tokenId) public {
-        TicketInfo storage ticket = ticketInfo[tokenId];
+        // Get ticket info from the NFT contract
+        EventTicketNFT.TicketInfo memory ticket = ticketNFT.getTicketInfo(tokenId);
         uint256 eventId = ticket.eventId;
         
         require(events[eventId].organizer == msg.sender, "Not the event organizer");
-        require(!ticket.isUsed, "Ticket already used");
+        require(!ticketNFT.isTicketUsed(tokenId), "Ticket already used");
         require(events[eventId].isActive, "Event is not active");
         
-        ticket.isUsed = true;
-        events[eventId].verifiedAttendees[ownerOf(tokenId)] = true;
+        // Mark the ticket as used through the NFT contract
+        ticketNFT.useTicket(tokenId);
+        
+        // Record attendance
+        address attendee = ticketNFT.ownerOf(tokenId);
+        events[eventId].verifiedAttendees[attendee] = true;
         
         // Award additional loyalty points for attendance (2 points)
-        loyaltyPoints[ownerOf(tokenId)] += 2;
-        emit LoyaltyPointsEarned(ownerOf(tokenId), 2);
-        
-        emit TicketUsed(tokenId, eventId);
+        loyaltyPoints[attendee] += 2;
+        emit LoyaltyPointsEarned(attendee, 2);
     }
     
     /**
@@ -436,41 +461,26 @@ contract EventTicketing is ERC721URIStorage, Ownable, ReentrancyGuard {
      * @param tokenId The ID of the ticket to refund.
      */
     function claimRefund(uint256 tokenId) public nonReentrant {
-        require(isApprovedOrOwner(msg.sender, tokenId), "Not ticket owner");
+        // Check ownership
+        address owner = ticketNFT.ownerOf(tokenId);
+        require(owner == msg.sender, "Not ticket owner");
         
-        TicketInfo storage ticket = ticketInfo[tokenId];
+        // Get ticket info from the NFT contract
+        EventTicketNFT.TicketInfo memory ticket = ticketNFT.getTicketInfo(tokenId);
         uint256 eventId = ticket.eventId;
         Event storage evt = events[eventId];
         
         require(!evt.isActive, "Event not cancelled");
-        require(!ticket.isUsed, "Ticket already used");
+        require(!ticketNFT.isTicketUsed(tokenId), "Ticket already used");
         
         // Mark ticket as used to prevent double refunds
-        ticket.isUsed = true;
-        
-        // Transfer refund from organizer's deposit or contract balance
-        // In a production system, you'd need to escrow funds or have a refund mechanism
-        // For simplicity, this example assumes the contract has funds for refunds
+        ticketNFT.useTicket(tokenId);
         
         // Send refund to ticket owner
         (bool success, ) = payable(msg.sender).call{value: ticket.purchasePrice}("");
         require(success, "Refund failed");
         
         emit RefundIssued(tokenId, msg.sender, ticket.purchasePrice);
-    }
-    
-    /**
-     * @dev Updates the URI for a specific token (for dynamic NFT metadata).
-     * @param tokenId The ID of the token to update.
-     * @param tokenURI The new URI.
-     */
-    function setTicketURI(uint256 tokenId, string memory tokenURI) public {
-        TicketInfo storage ticket = ticketInfo[tokenId];
-        uint256 eventId = ticket.eventId;
-        
-        require(events[eventId].organizer == msg.sender, "Not the event organizer");
-        
-        _setTokenURI(tokenId, tokenURI);
     }
     
     /**
@@ -487,6 +497,7 @@ contract EventTicketing is ERC721URIStorage, Ownable, ReentrancyGuard {
      * @return resaleDeadline Deadline for resales
      * @return eventURI URI for event metadata
      * @return isActive Whether the event is active
+     * @return worldIdRequired Whether World ID verification is required
      */
     function getEventDetails(uint256 eventId) public view returns (
         string memory name,
@@ -499,7 +510,8 @@ contract EventTicketing is ERC721URIStorage, Ownable, ReentrancyGuard {
         bool isResellAllowed,
         uint256 resaleDeadline,
         string memory eventURI,
-        bool isActive
+        bool isActive,
+        bool worldIdRequired
     ) {
         Event storage evt = events[eventId];
         
@@ -514,37 +526,8 @@ contract EventTicketing is ERC721URIStorage, Ownable, ReentrancyGuard {
             evt.isResellAllowed,
             evt.resaleDeadline,
             evt.eventURI,
-            evt.isActive
-        );
-    }
-    
-    /**
-     * @dev Gets the event ID and other info for a given ticket.
-     * @param tokenId The ID of the ticket NFT.
-     * @return eventId The associated event ID
-     * @return ticketIndex The ticket's index within the event
-     * @return purchasePrice Original purchase price
-     * @return isUsed Whether the ticket has been used
-     * @return isForSale Whether the ticket is for sale
-     * @return resalePrice Current resale price (if applicable)
-     */
-    function getTicketDetails(uint256 tokenId) public view returns (
-        uint256 eventId,
-        uint256 ticketIndex,
-        uint256 purchasePrice,
-        bool isUsed,
-        bool isForSale,
-        uint256 resalePrice
-    ) {
-        TicketInfo storage ticket = ticketInfo[tokenId];
-        
-        return (
-            ticket.eventId,
-            ticket.ticketIndex,
-            ticket.purchasePrice,
-            ticket.isUsed,
-            ticket.isForSale,
-            ticket.resalePrice
+            evt.isActive,
+            evt.worldIdRequired
         );
     }
     
@@ -575,18 +558,46 @@ contract EventTicketing is ERC721URIStorage, Ownable, ReentrancyGuard {
      * @return A checksum that can be used to verify ticket authenticity.
      */
     function generateTicketChecksum(uint256 tokenId, uint256 timestamp) public view returns (bytes32) {
-        // Check if token exists - if ownerOf doesn't revert, the token exists
-        address owner;
-        try this.ownerOf(tokenId) returns (address _owner) {
-            owner = _owner;
-        } catch {
-            revert("Ticket does not exist");
-        }
+        // Get the owner of the token
+        address owner = ticketNFT.ownerOf(tokenId);
         
         // Create a checksum combining token ID, owner, and timestamp
         return keccak256(abi.encodePacked(tokenId, owner, address(this), timestamp));
     }
-    // Add this to your EventTicketing contract
+    
+    /**
+     * @dev Utility function to convert a uint256 to a string.
+     * @param value The uint256 to convert.
+     * @return The string representation of the uint256.
+     */
+    function _toString(uint256 value) internal pure returns (string memory) {
+        // This function handles the conversion of a uint to a string
+        if (value == 0) {
+            return "0";
+        }
+        
+        uint256 temp = value;
+        uint256 digits;
+        
+        while (temp != 0) {
+            digits++;
+            temp /= 10;
+        }
+        
+        bytes memory buffer = new bytes(digits);
+        while (value != 0) {
+            digits -= 1;
+            buffer[digits] = bytes1(uint8(48 + uint256(value % 10)));
+            value /= 10;
+        }
+        
+        return string(buffer);
+    }
+    
+    /**
+     * @dev Contract can receive ETH for refunds
+     */
     receive() external payable {
-}
+        // Allow contract to receive ETH for potential refunds
+    }
 }
