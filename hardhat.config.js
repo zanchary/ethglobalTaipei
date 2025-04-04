@@ -1,16 +1,21 @@
 require("@nomicfoundation/hardhat-toolbox");
-require("@nomicfoundation/hardhat-ethers");
 
 const { vars } = require("hardhat/config");
 
 module.exports = {
   solidity: "0.8.28",
   networks: {
-    hardhat: {},
+    hardhat: {
+      allowUnlimitedContractSize: true, // 👈 Add this
+    },
     worldchain: {
       url: "https://worldchain-mainnet.g.alchemy.com/public",
       accounts: process.env.WORLD_CHAIN_PRIVATE_KEY,
       chainId: 480, // This should be the correct chain ID for World Chain
+    },
+    localhost: {
+      url: "http://127.0.0.1:8545",
+      chainId: 1337,
     },
   },
   /*
