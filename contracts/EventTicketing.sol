@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./EventTicketNFT.sol";
 import "./WorldIDVerifier.sol";
+import "./CrossChainBridge.sol";
 
 /**
  * @title EventTicketing
@@ -17,6 +18,9 @@ contract EventTicketing is Ownable, ReentrancyGuard {
     
     // Reference to the World ID verifier contract
     WorldIDVerifier public worldIDVerifier;
+    
+    // Reference to the cross-chain bridge contract
+    CrossChainBridge public crossChainBridge;
     
     // Simple counter for event IDs
     uint256 public nextEventId;
@@ -111,17 +115,27 @@ contract EventTicketing is Ownable, ReentrancyGuard {
     
     event LoyaltyPointsEarned(address indexed user, uint256 points);
     
+    event CrossChainPaymentProcessed(
+        bytes32 indexed paymentId,
+        uint256 indexed eventId,
+        address indexed buyer,
+        uint256 tokenId
+    );
+    
     /**
      * @dev Constructor for the main ticketing contract
      * @param _ticketNFT Address of the ticket NFT contract
      * @param _worldIDVerifier Address of the World ID verifier contract
+     * @param _crossChainBridge Address of the cross-chain bridge contract
      */
     constructor(
         address _ticketNFT,
-        address _worldIDVerifier
+        address _worldIDVerifier,
+        address payable _crossChainBridge
     ) Ownable(msg.sender) {
         ticketNFT = EventTicketNFT(_ticketNFT);
         worldIDVerifier = WorldIDVerifier(_worldIDVerifier);
+        crossChainBridge = CrossChainBridge(_crossChainBridge);
         platformAdmin = payable(msg.sender);
         
         // Register the purchase ticket action with World ID
@@ -191,6 +205,15 @@ contract EventTicketing is Ownable, ReentrancyGuard {
     function updatePlatformAdmin(address payable newAdmin) external onlyOwner {
         require(newAdmin != address(0), "Invalid address");
         platformAdmin = newAdmin;
+    }
+    
+    /**
+     * @dev Updates the cross-chain bridge contract address
+     * @param _crossChainBridge Address of the new cross-chain bridge contract
+     */
+    function updateCrossChainBridge(address payable _crossChainBridge) external onlyOwner {
+        require(_crossChainBridge != address(0), "Invalid bridge address");
+        crossChainBridge = CrossChainBridge(_crossChainBridge);
     }
     
     /**
@@ -750,5 +773,90 @@ contract EventTicketing is Ownable, ReentrancyGuard {
      */
     receive() external payable {
         // Allow contract to receive ETH for potential refunds
+    }
+
+    /**
+     * @dev Processes a cross-chain payment and mints a ticket
+     * @param paymentId ID of the cross-chain payment
+     * @return The token ID of the minted ticket
+     */
+    function processCrossChainPayment(bytes32 paymentId) 
+        external 
+        nonReentrant 
+        returns (uint256) 
+    {
+        // Get payment info from the bridge
+        CrossChainBridge.PaymentInfo memory payment = crossChainBridge.getPaymentInfo(paymentId);
+        
+        // Verify payment exists and is not processed
+        require(payment.timestamp > 0, "Payment does not exist");
+        require(!payment.isProcessed, "Payment already processed");
+        
+        uint256 eventId = payment.eventId;
+        Event storage evt = events[eventId];
+        
+        // Verify event is active and tickets are available
+        require(evt.isActive, "Event is not active");
+        require(evt.ticketsSold < evt.totalTickets, "No more tickets available");
+        require(block.timestamp < evt.eventDate, "Event has already occurred");
+        
+        // Convert amount from source chain to target chain
+        uint256 convertedAmount = crossChainBridge.convertAmount(payment.sourceChainId, payment.amount);
+        
+        // Check converted amount matches ticket price
+        require(convertedAmount >= evt.ticketPrice, "Insufficient payment amount");
+        
+        // Check World ID verification if required
+        if (evt.worldIdRequired) {
+            require(
+                worldIDVerifier.isVerified(payment.payer),
+                "World ID verification required"
+            );
+        }
+        
+        // Mark payment as processed in the bridge
+        crossChainBridge.markPaymentAsProcessed(paymentId);
+        
+        // Mint the ticket
+        uint256 ticketIndex = evt.ticketsSold;
+        evt.ticketsSold++;
+        
+        // Calculate platform fee
+        uint256 platformFee = (evt.ticketPrice * platformFeePercentage) / 10000;
+        uint256 organizerAmount = evt.ticketPrice - platformFee;
+        
+        // Transfer platform fee to admin (from this contract's balance)
+        (bool feeSuccess, ) = platformAdmin.call{value: platformFee}("");
+        require(feeSuccess, "Platform fee transfer failed");
+        
+        // Transfer remaining amount to organizer
+        (bool paySuccess, ) = payable(evt.organizer).call{value: organizerAmount}("");
+        require(paySuccess, "Organizer payment failed");
+        
+        // Generate ticket URI
+        string memory ticketURI = string(abi.encodePacked(
+            evt.eventURI, 
+            "/ticket/", 
+            _toString(ticketIndex)
+        ));
+        
+        // Mint the NFT ticket
+        uint256 tokenId = ticketNFT.mintTicket(
+            payment.payer, 
+            eventId, 
+            ticketIndex, 
+            evt.ticketPrice,
+            ticketURI
+        );
+        
+        // Award loyalty points
+        loyaltyPoints[payment.payer]++;
+        emit LoyaltyPointsEarned(payment.payer, 1);
+        
+        emit TicketMinted(tokenId, eventId, payment.payer, evt.ticketPrice);
+        
+        emit CrossChainPaymentProcessed(paymentId, eventId, payment.payer, tokenId);
+        
+        return tokenId;
     }
 }
