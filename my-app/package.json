@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@radix-ui/react-avatar": "^1.1.3",
     "@radix-ui/react-slot": "^1.1.2",
     "@worldcoin/minikit-js": "^1.7.0",
     "@worldcoin/minikit-react": "^1.8.0",

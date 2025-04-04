@@ -20,7 +20,7 @@ export function SignOutButton() {
   };
 
   return (
-    <Button size="lg" onClick={handleSignOut} disabled={isLoading}>
+    <Button onClick={handleSignOut} disabled={isLoading}>
       <div className="flex items-center gap-3">
         {isLoading && <Loader2 className="animate-spin" />}
         Sign Out

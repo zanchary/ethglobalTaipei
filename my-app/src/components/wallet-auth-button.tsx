@@ -70,7 +70,7 @@ export function WalletAuthButton({ onSuccess }: WalletAuthButtonProps) {
     <Button size="lg" onClick={handleWalletAuth} disabled={isLoading}>
       <div className="flex items-center gap-3">
         {isLoading && <Loader2 className="animate-spin" />}
-        Sign In
+        Get Started
       </div>
     </Button>
   );
