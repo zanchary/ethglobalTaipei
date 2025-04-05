@@ -1,9 +1,19 @@
 // 简化版测试脚本 - 只测试EventTicketing和EventTicketNFT
 const { ethers } = require("hardhat");
+const deploySimple = require("./deploy-simple");
 require('dotenv').config();
 
 async function main() {
   console.log("开始测试基本票务功能...");
+
+  // 部署合约
+  console.log("首先部署基本票务合约...");
+  const contracts = await deploySimple();
+  
+  const {
+    eventTicketing,
+    eventTicketNFT
+  } = contracts;
 
   // 获取部署者账户和一些测试账户
   const [deployer, organizer, attendee1, attendee2] = await ethers.getSigners();
@@ -13,58 +23,6 @@ async function main() {
   console.log("- 参与者1:", attendee1.address);
   console.log("- 参与者2:", attendee2.address);
 
-  // 读取已部署的合约地址
-  console.log("获取已部署的合约...");
-  
-  // 取得合约工厂
-  const EventTicketing = await ethers.getContractFactory("EventTicketing");
-  const EventTicketNFT = await ethers.getContractFactory("EventTicketNFT");
-  
-  // 从最近部署获取合约地址
-  let eventTicketingAddress = process.env.EVENT_TICKETING_ADDRESS;
-  let eventTicketNFTAddress = process.env.EVENT_TICKET_NFT_ADDRESS;
-  
-  // 如果环境变量中没有地址，则尝试从deploy-simple.js导入（适用于直接运行的情况）
-  if (!eventTicketingAddress || !eventTicketNFTAddress) {
-    try {
-      console.log("环境变量中未找到合约地址，尝试直接获取最近部署的合约...");
-      // 在本地变量中查找
-      const deployedAddrFile = require('path').join(__dirname, '../deployed-addresses.json');
-      
-      // 尝试读取文件
-      try {
-        if (require('fs').existsSync(deployedAddrFile)) {
-          const addresses = JSON.parse(require('fs').readFileSync(deployedAddrFile, 'utf8'));
-          eventTicketingAddress = addresses.eventTicketingAddress;
-          eventTicketNFTAddress = addresses.eventTicketNFTAddress;
-        }
-      } catch (e) {
-        console.log("无法读取已部署的合约地址文件:", e.message);
-      }
-    } catch (err) {
-      console.log("获取部署的合约地址失败，使用硬编码地址...");
-    }
-  }
-  
-  // 如果仍然没有地址，则尝试部署新的合约
-  if (!eventTicketingAddress || !eventTicketNFTAddress) {
-    console.log("未找到已部署的合约地址，将重新部署合约。这不是理想情况，建议先运行deploy-simple.js");
-    const deploySimple = require("./deploy-simple");
-    const contracts = await deploySimple();
-    
-    // 从新部署的合约中获取实例
-    eventTicketing = contracts.eventTicketing;
-    eventTicketNFT = contracts.eventTicketNFT;
-  } else {
-    // 连接到现有合约
-    console.log(`使用已部署的合约地址:
-- EventTicketing: ${eventTicketingAddress}
-- EventTicketNFT: ${eventTicketNFTAddress}`);
-    
-    eventTicketing = EventTicketing.attach(eventTicketingAddress);
-    eventTicketNFT = EventTicketNFT.attach(eventTicketNFTAddress);
-  }
-  
   // 先验证组织者
   console.log("\n验证活动组织者...");
   const verifyOrganizerTx = await eventTicketing.verifyOrganizer(organizer.address);
@@ -90,8 +48,8 @@ async function main() {
   const createEventTx = await eventTicketing.connect(organizer).createEvent(
     "测试活动", // 名称
     "这是一个简单的测试活动", // 描述
-    currentTime, // 创建时间
-    eventStartTime, // 开始时间
+    currentTime, // 开始时间
+    eventStartTime, // 结束时间
     eventEndTime, // 结束时间
     100, // 总票数
     ethers.parseEther("0.01"), // 票价：0.01 ETH
