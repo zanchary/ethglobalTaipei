@@ -10,9 +10,9 @@ export async function GET() {
   try {
     // Connect to your local Hardhat node
     const provider = new ethers.JsonRpcProvider(
-      process.env.HARDHAT_RPC_URL || "http://localhost:8545"
+      "https://worldchain-mainnet.g.alchemy.com/public"
     );
-    const contractAddress = process.env.EVENT_TICKETING_ADDRESS;
+    const contractAddress = process.env.NEXT_PUBLIC_EVENT_TICKETING_ADDRESS;
 
     if (!contractAddress) {
       throw new Error(

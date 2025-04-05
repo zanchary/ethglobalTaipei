@@ -1,0 +1,18 @@
+[
+  {
+    "inputs": [
+      { "internalType": "string", "name": "name", "type": "string" },
+      { "internalType": "string", "name": "description", "type": "string" },
+      { "internalType": "uint256", "name": "eventDate", "type": "uint256" },
+      { "internalType": "uint256", "name": "totalTickets", "type": "uint256" },
+      { "internalType": "uint256", "name": "ticketPrice", "type": "uint256" },
+      { "internalType": "bool", "name": "worldIdRequired", "type": "bool" }
+    ],
+    "name": "createEvent",
+    "outputs": [
+      { "internalType": "uint256", "name": "", "type": "uint256" }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]
