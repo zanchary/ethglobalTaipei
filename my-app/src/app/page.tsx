@@ -39,7 +39,7 @@ export default function Page() {
     : [];
 
   return (
-    <div className="flex p-6 items-center w-full justify-center flex-col h-[100dvh] bg-white text-black safe-area-inset">
+    <div className="flex p-6 pb-28 items-center w-full flex-col h-[100dvh] bg-white text-black overflow-y-scroll">
       {session?.user ? (
         <div className="flex flex-col gap-4 flex-1 w-full">
           {activeTab === "events" && (
@@ -52,7 +52,7 @@ export default function Page() {
           {activeTab === "profile" && (
             <ProfileTab user={session.user} organizedEvents={organizedEvents} />
           )}
-          <div className="fixed bottom-6 left-0 right-0 flex justify-around border-t p-4 bg-white">
+          <div className="fixed pb-10 bottom-0 left-0 right-0 flex justify-around border-t p-4 bg-white">
             <button
               onClick={() => setActiveTab("events")}
               className={activeTab === "events" ? "font-bold" : ""}

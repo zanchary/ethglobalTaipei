@@ -86,10 +86,7 @@ export function ProfileTab({ user, organizedEvents }: ProfileTabProps) {
       return;
     }
 
-    const timestamp = new Date(eventDate).getTime();
-
-    console.log("timestamp");
-    console.log(timestamp);
+    const timestamp = Math.floor(new Date(eventDate).getTime() / 1000);
 
     try {
       const { commandPayload, finalPayload } =
@@ -102,8 +99,7 @@ export function ProfileTab({ user, organizedEvents }: ProfileTabProps) {
               args: [
                 eventName,
                 eventDescription,
-                // timestamp,
-                0,
+                timestamp,
                 totalTickets,
                 ticketPrice,
                 worldIdRequired,
@@ -111,7 +107,10 @@ export function ProfileTab({ user, organizedEvents }: ProfileTabProps) {
             },
           ],
         });
+
       console.log(commandPayload);
+      console.log(finalPayload);
+
       setTxStatus(
         "Transaction submitted. Transaction ID: " + finalPayload.transaction_id
       );
