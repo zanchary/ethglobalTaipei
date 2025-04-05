@@ -10,11 +10,18 @@ import {
 import React from "react";
 import { Button } from "./ui/button";
 
+function truncatedAddress(address: string): string {
+  return `${address.slice(0, 7)}...${address.slice(-5)}`;
+}
+
 interface Event {
   id: number;
-  title: string;
+  name: string;
+  description: string;
   organizer: string;
   date: string;
+  totalTickets: number;
+  ticketPrice: any;
 }
 
 interface EventProps {
@@ -27,23 +34,25 @@ export function Event({ event }: EventProps) {
       <DialogTrigger asChild>
         <Card>
           <CardHeader>
-            <CardTitle>{event.title}</CardTitle>
+            <CardTitle>{event.name}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div>Organized by: {event.organizer}</div>
-            <div>Date: {event.date}</div>
+            <div>{event.description}</div>
+            <div>Organized by: {truncatedAddress(event.organizer)}</div>
+            <div> Total Tickets: {event.totalTickets} </div>
+            {/* <div>Date: {event.date}</div> */}
           </CardContent>
         </Card>
       </DialogTrigger>
       <DialogContent>
-        <DialogTitle>{event.title}</DialogTitle>
+        <DialogTitle>{event.name}</DialogTitle>
         <DialogDescription>
-          Organized by: {event.organizer}
-          <br />
-          Date: {event.date}
+          Organized by: {truncatedAddress(event.organizer)}
+          {/* <br /> */}
+          {/* Date: {event.date} */}
         </DialogDescription>
         <DialogFooter>
-          <Button>Buy Ticket</Button>
+          <Button>Buy Ticket with {event.ticketPrice} ETH</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
