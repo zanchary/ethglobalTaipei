@@ -86,94 +86,7 @@ export function ProfileTab({ user, organizedEvents }: ProfileTabProps) {
       return;
     }
 
-    // 将日期转换为Unix时间戳（秒）
-    const timestampInSeconds = Math.floor(new Date(eventDate).getTime() / 1000);
-    
-    // 验证输入
-    if (!eventName || !eventDescription) {
-      setTxStatus("错误: 活动名称和描述不能为空");
-      return;
-    }
-    
-    if (!eventDate) {
-      setTxStatus("错误: 请选择活动日期");
-      return;
-    }
-    
-    if (timestampInSeconds <= Math.floor(Date.now() / 1000)) {
-      setTxStatus("错误: 活动日期必须在未来");
-      return;
-    }
-    
-    const ticketsNum = parseInt(totalTickets);
-    if (isNaN(ticketsNum) || ticketsNum <= 0) {
-      setTxStatus("错误: 票数必须是大于零的整数");
-      return;
-    }
-    
-    // 处理票价 - 改进ETH到wei的转换
-    let priceInWei;
-    try {
-      if (!ticketPrice || ticketPrice.trim() === '') {
-        setTxStatus("错误: 请输入票价");
-        return;
-      }
-
-      // 移除所有空格
-      const cleanPrice = ticketPrice.trim().replace(/\s+/g, '');
-      
-      // 检查是否为数字格式
-      if (!/^[0-9]+(\.[0-9]+)?$/.test(cleanPrice)) {
-        setTxStatus("错误: 票价格式无效，请输入有效的数字");
-        return;
-      }
-      
-      // ETH转wei (1 ETH = 10^18 wei)
-      if (cleanPrice.includes('.')) {
-        // 小数点格式，按ETH单位处理
-        const [whole, fraction = ''] = cleanPrice.split('.');
-        // 确保小数部分不超过18位
-        const paddedFraction = fraction.substring(0, 18).padEnd(18, '0');
-        // 构建wei值
-        priceInWei = whole + paddedFraction;
-        // 移除前导零
-        priceInWei = priceInWei.replace(/^0+/, '') || '0';
-      } else {
-        // 整数格式，可以是ETH或wei
-        if (cleanPrice.length <= 9) {
-          // 如果数字较小，认为是ETH，转换为wei
-          priceInWei = cleanPrice.padEnd(cleanPrice.length + 18, '0');
-        } else {
-          // 数字较大，可能已经是wei
-          priceInWei = cleanPrice;
-        }
-      }
-
-      // 检查价格是否大于零
-      if (priceInWei === '0' || /^0+$/.test(priceInWei)) {
-        setTxStatus("错误: 票价必须大于零");
-        return;
-      }
-
-      // 打印转换结果，方便调试
-      console.log(`原始输入: ${ticketPrice}`);
-      console.log(`转换为wei: ${priceInWei}`);
-      
-    } catch (e) {
-      console.error("票价转换错误:", e);
-      setTxStatus("错误: 票价格式无效");
-      return;
-    }
-
-    console.log("创建活动参数:", {
-      name: eventName,
-      description: eventDescription,
-      date: new Date(timestampInSeconds * 1000).toString(),
-      timestamp: timestampInSeconds,
-      tickets: ticketsNum,
-      price: priceInWei,
-      worldIdRequired
-    });
+    const timestamp = Math.floor(new Date(eventDate).getTime() / 1000);
 
     try {
       const { commandPayload, finalPayload } =
@@ -186,15 +99,18 @@ export function ProfileTab({ user, organizedEvents }: ProfileTabProps) {
               args: [
                 eventName,
                 eventDescription,
-                timestampInSeconds,
-                ticketsNum,
-                priceInWei, // 字符串形式的大整数
+                timestamp,
+                totalTickets,
+                ticketPrice,
                 worldIdRequired,
               ],
             },
           ],
         });
-      console.log("交易详情:", commandPayload);
+
+      console.log(commandPayload);
+      console.log(finalPayload);
+
       setTxStatus(
         "交易已提交. 交易ID: " + finalPayload.transaction_id
       );
