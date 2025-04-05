@@ -3,10 +3,8 @@
 import { WalletAuthButton } from "@/components/wallet-auth-button";
 import { useSession } from "next-auth/react";
 import { SignOutButton } from "@/components/sign-out-button";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useState, useEffect } from "react";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { EventList } from "@/components/EventList";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Event } from "@/components/Event";
 
 interface Event {
@@ -37,6 +35,10 @@ export default function Page() {
     }
   }, [session]);
 
+  const organizedEvents = session?.user
+    ? events.filter((event) => event.organizer === session.user.name)
+    : [];
+
   return (
     <div className="flex p-6 items-center w-full justify-center flex-col h-[100dvh] bg-white text-black safe-area-inset">
       {session?.user ? (
@@ -55,6 +57,16 @@ export default function Page() {
               </Avatar>
               <span>{session.user.name}</span>
               <SignOutButton />
+              <div className="mt-8 w-full">
+                <h2 className="text-xl font-bold mb-4">My Events</h2>
+                {organizedEvents.length > 0 ? (
+                  organizedEvents.map((event) => (
+                    <Event key={event.id} event={event} />
+                  ))
+                ) : (
+                  <p>No events organized by you</p>
+                )}
+              </div>
             </div>
           )}
           <div className="fixed bottom-6 left-0 right-0 flex justify-around border-t p-4 bg-white">
