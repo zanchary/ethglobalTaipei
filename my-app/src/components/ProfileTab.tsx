@@ -88,10 +88,12 @@ export function ProfileTab({ user, organizedEvents }: ProfileTabProps) {
 
     console.log("user.address");
     console.log(user.address);
-    
+
     // Convert totalTickets to a number and ticketPrice (ETH) to wei as BigInt
     const numericTotalTickets = parseInt(totalTickets);
-    const numericTicketPrice = BigInt(Math.floor(parseFloat(ticketPrice) * 1e18));
+    const numericTicketPrice = BigInt(
+      Math.floor(parseFloat(ticketPrice) * 1e18)
+    );
 
     try {
       const { commandPayload, finalPayload } =
@@ -136,7 +138,7 @@ export function ProfileTab({ user, organizedEvents }: ProfileTabProps) {
       <Button variant="default" className="mt-4" onClick={() => setOpen(true)}>
         Create Event
       </Button>
-      <div className="mt-8 w-full">
+      <div className="mt-8 w-full flex flex-col gap-4">
         <h2 className="text-xl font-bold mb-4">My Events</h2>
         {organizedEvents.length > 0 ? (
           organizedEvents.map((event) => <Event key={event.id} event={event} />)
