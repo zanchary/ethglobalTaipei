@@ -1,0 +1,11 @@
+{
+  "id": "1",
+  "name": "ETHGlobal Taipei 2025",
+  "description": "A global hackathon for Ethereum developers in Taipei",
+  "totalTickets": 100,
+  "ticketPrice": "0.001",
+  "eventDate": 1744463101,
+  "worldIdRequired": false,
+  "transactionHash": "0x323e0f0df5a29eefceedbb297d3de7d9caa0fa8db6bbed3b23745921dc8c0ba0",
+  "createdAt": "2025-04-05T13:05:14.651Z"
+}

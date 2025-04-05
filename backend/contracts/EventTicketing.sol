@@ -126,14 +126,6 @@ contract EventTicketing is Ownable, ReentrancyGuard {
     }
     
     /**
-     * @dev Modifier to check if the sender is a verified organizer.
-     */
-    modifier onlyVerifiedOrganizer() {
-        require(verifiedOrganizers[msg.sender], "Not a verified organizer");
-        _;
-    }
-    
-    /**
      * @dev Modifier to check if the sender is the organizer of an event.
      */
     modifier onlyEventOrganizer(uint256 eventId) {
@@ -207,7 +199,7 @@ contract EventTicketing is Ownable, ReentrancyGuard {
         uint256 totalTickets,
         uint256 ticketPrice,
         bool worldIdRequired
-    ) public onlyVerifiedOrganizer returns (uint256) {
+    ) public returns (uint256) {
         require(totalTickets > 0, "Total tickets must be greater than zero");
         require(ticketPrice > 0, "Ticket price must be greater than zero");
         require(eventDate > block.timestamp, "Event date must be in the future");

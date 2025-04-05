@@ -224,22 +224,6 @@ describe("EventTicketing System", function () {
       expect(eventDetails.worldIdRequired).to.be.true;
     });
     
-    it("Should prevent unverified organizers from creating events", async function () {
-      await expect(
-        eventTicketing.connect(buyer1).createEvent(
-          eventName,
-          eventDescription,
-          eventDate,
-          totalTickets,
-          ticketPrice,
-          true,
-          resaleDeadline,
-          "ipfs://eventURI",
-          false
-        )
-      ).to.be.revertedWith("Not a verified organizer");
-    });
-    
     it("Should validate event creation parameters", async function () {
       // Test with event date in the past
       await expect(

@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Mini Apps Web 3 Template
 
 The intention for this project is to enable Mini App Builders to easily create new Next.js mini apps.
@@ -114,18 +113,107 @@ Questions or feedback? Feel free to reach out!
 - [Developer Portal](https://developer.worldcoin.org/)
 
 ---
-=======
-# Sample Hardhat Project
 
-This project demonstrates a basic Hardhat use case. It comes with a sample contract, a test for that contract, and a Hardhat Ignition module that deploys that contract.
+# 在WorldChain上验证智能合约
 
-Try running some of the following tasks:
+本文档提供了在WorldChain区块链上验证智能合约的详细步骤。
 
-```shell
-npx hardhat help
-npx hardhat test
-REPORT_GAS=true npx hardhat test
-npx hardhat node
-npx hardhat ignition deploy ./ignition/modules/Lock.js
+## 先决条件
+
+1. 已部署的合约地址
+2. 正确配置的.env文件，包含以下变量：
+   - WORLD_CHAIN_EVENT_TICKETING_ADDRESS
+   - WORLD_CHAIN_EVENT_TICKET_NFT_ADDRESS
+   - WORLD_CHAIN_WORLD_ID_VERIFIER_ADDRESS (可选，取决于您的部署)
+   - WORLD_CHAIN_CROSS_CHAIN_BRIDGE_ADDRESS (可选，取决于您的部署)
+   - WORLD_CHAIN_PRIVATE_KEY
+   - WORLDCHAIN_RPC_URL
+
+## 步骤
+
+### 1. 确保您的hardhat.config.js正确配置
+
+您的`hardhat.config.js`文件应该包含WorldChain网络配置和Etherscan(WorldScan)配置：
+
+```javascript
+etherscan: {
+  apiKey: {
+    worldchain: "CC2ATB8DY5WIU8IDE926QWM112DS9DMEZA",
+  },
+  customChains: [
+    {
+      network: "worldchain",
+      chainId: 480,
+      urls: {
+        apiURL: "https://api.worldscan.org/api", 
+        browserURL: "https://worldscan.org/",
+      },
+    },
+  ],
+},
 ```
->>>>>>> 60e08c2 (with hardhat framework)
+
+### 2. 运行验证脚本
+
+使用以下命令运行验证脚本：
+
+```bash
+npx hardhat run scripts/verify-contract.js --network worldchain
+```
+
+脚本将按顺序验证以下合约：
+1. EventTicketNFT
+2. EventTicketing (需要提供正确的构造函数参数)
+
+### 3. 手动验证（如果脚本失败）
+
+如果脚本验证失败，您可以使用以下命令手动验证合约：
+
+对于没有构造函数参数的合约：
+```bash
+npx hardhat verify --network worldchain <合约地址>
+```
+
+对于有构造函数参数的合约：
+```bash
+npx hardhat verify --network worldchain <合约地址> <参数1> <参数2> <参数3>
+```
+
+例如，对于EventTicketing合约：
+```bash
+npx hardhat verify --network worldchain 0x123... 0x456... 0x789... 0xabc...
+```
+
+### 4. 使用区块浏览器验证
+
+如果上述方法都失败，您可以通过WorldChain的区块浏览器手动验证：
+
+1. 访问 [WorldScan](https://worldscan.org/)
+2. 搜索您的合约地址
+3. 点击"合约"标签
+4. 点击"验证并发布"按钮
+5. 填写必要信息：
+   - 合约名称
+   - 编译器版本
+   - 许可证类型
+   - 优化设置
+   - 构造函数参数（如有）
+   - 上传完整的合约代码
+
+## 常见问题解决
+
+1. **构造函数参数错误**：确保您提供的构造函数参数与部署时使用的完全一致。
+
+2. **API密钥问题**：检查您的WorldScan API密钥是否正确。
+
+3. **合约代码不匹配**：确保您尝试验证的合约代码与部署的完全相同，包括任何导入的库。
+
+4. **已经验证过**：如果合约已经验证过，您会看到"Already Verified"的消息。
+
+## 验证后的好处
+
+成功验证后，您将能够：
+- 在区块浏览器上查看合约源代码
+- 读取合约函数和事件
+- 通过区块浏览器界面与合约交互
+- 增加项目的透明度和可信度
