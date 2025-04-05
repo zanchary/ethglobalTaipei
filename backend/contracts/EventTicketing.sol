@@ -190,6 +190,7 @@ contract EventTicketing is Ownable, ReentrancyGuard {
      * @param totalTickets The total number of tickets available.
      * @param ticketPrice The price per ticket in wei.
      * @param worldIdRequired Whether World ID verification is required for purchase.
+     * @param organizer The address of the event organizer.
      * @return The ID of the created event.
      */
     function createEvent(
@@ -198,11 +199,13 @@ contract EventTicketing is Ownable, ReentrancyGuard {
         uint256 eventDate,
         uint256 totalTickets,
         uint256 ticketPrice,
-        bool worldIdRequired
+        bool worldIdRequired,
+        address organizer
     ) public returns (uint256) {
         require(totalTickets > 0, "Total tickets must be greater than zero");
         require(ticketPrice > 0, "Ticket price must be greater than zero");
         require(eventDate > block.timestamp, "Event date must be in the future");
+        require(organizer != address(0), "Organizer address cannot be zero");
         
         uint256 eventId = nextEventId;
         nextEventId++;
@@ -214,7 +217,7 @@ contract EventTicketing is Ownable, ReentrancyGuard {
         newEvent.totalTickets = totalTickets;
         newEvent.ticketsSold = 0;
         newEvent.ticketPrice = ticketPrice;
-        newEvent.organizer = msg.sender;
+        newEvent.organizer = organizer;
         newEvent.isActive = true;
         newEvent.worldIdRequired = worldIdRequired;
         
@@ -225,7 +228,7 @@ contract EventTicketing is Ownable, ReentrancyGuard {
             eventDate,
             totalTickets,
             ticketPrice,
-            msg.sender,
+            organizer,
             worldIdRequired
         );
         

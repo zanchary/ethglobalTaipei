@@ -110,6 +110,7 @@ async function main() {
           totalTickets,
           ticketPrice,
           worldIdRequired,
+          deployer.address, // 使用部署者地址作为组织者
           {
             gasLimit: 1000000 // 设置足够高的 gas limit 以确保交易成功
           }

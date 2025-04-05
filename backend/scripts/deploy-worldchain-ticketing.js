@@ -8,6 +8,33 @@ const { ethers, network } = require("hardhat");
 const fs = require("fs");
 const path = require("path");
 
+// 添加延迟函数
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+// 添加带重试的合约调用函数
+async function contractCallWithRetry(fn, options = {}) {
+  const maxRetries = options.maxRetries || 3;
+  const initialDelay = options.initialDelay || 5000;
+  
+  let lastError;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      // 检查是否为"Too Many Requests"错误
+      if (error.message && error.message.includes("Too Many Requests") && attempt < maxRetries - 1) {
+        const waitTime = initialDelay * Math.pow(2, attempt); // 指数退避
+        console.log(`遇到"Too Many Requests"错误，等待${waitTime/1000}秒后重试 (${attempt + 1}/${maxRetries})...`);
+        await delay(waitTime);
+      } else {
+        throw error;
+      }
+    }
+  }
+  throw lastError;
+}
+
 async function main() {
   console.log("Starting deployment of WorldChain contracts...");
 
@@ -141,11 +168,20 @@ async function main() {
         gasLimit: 2500000
       };
       
-      // 部署合约
+      // 部署合约 - 使用重试逻辑
       console.log("Sending EventTicketNFT deployment transaction with higher gas limit...");
-      const eventTicketNFT = await EventTicketNFT.deploy(deployOptions);
+      
+      const eventTicketNFT = await contractCallWithRetry(async () => {
+        const contract = await EventTicketNFT.deploy(deployOptions);
+        return contract;
+      });
+      
       console.log("Waiting for deployment confirmation...");
-      await eventTicketNFT.waitForDeployment();
+      await contractCallWithRetry(async () => {
+        await eventTicketNFT.waitForDeployment();
+        return true;
+      });
+      
       eventTicketNFTAddress = await eventTicketNFT.getAddress();
       console.log(`EventTicketNFT contract deployed to: ${eventTicketNFTAddress}`);
       
@@ -206,15 +242,23 @@ async function main() {
         gasLimit: 3000000
       };
       
+      // 使用重试逻辑部署EventTicketing合约
       console.log("Sending EventTicketing deployment transaction with higher gas limit...");
-      const eventTicketing = await EventTicketing.deploy(
-        eventTicketNFTAddress,
-        worldIDVerifierAddress,
-        bridgeAddress,
-        deployOptions
-      );
+      const eventTicketing = await contractCallWithRetry(async () => {
+        return await EventTicketing.deploy(
+          eventTicketNFTAddress,
+          worldIDVerifierAddress,
+          bridgeAddress,
+          deployOptions
+        );
+      });
+      
       console.log("Waiting for deployment confirmation...");
-      await eventTicketing.waitForDeployment();
+      await contractCallWithRetry(async () => {
+        await eventTicketing.waitForDeployment();
+        return true;
+      });
+      
       eventTicketingAddress = await eventTicketing.getAddress();
       console.log(`EventTicketing contract deployed to: ${eventTicketingAddress}`);
       
@@ -229,10 +273,20 @@ async function main() {
       
       try {
         // 检查是否已经有铸造权限
-        const hasMinterRole = await eventTicketNFT.hasRole(MINTER_ROLE, eventTicketingAddress);
+        const hasMinterRole = await contractCallWithRetry(async () => {
+          return await eventTicketNFT.hasRole(MINTER_ROLE, eventTicketingAddress);
+        });
+        
         if (!hasMinterRole) {
-          const grantTx = await eventTicketNFT.grantRole(MINTER_ROLE, eventTicketingAddress, txOptions);
-          await grantTx.wait();
+          const grantTx = await contractCallWithRetry(async () => {
+            return await eventTicketNFT.grantRole(MINTER_ROLE, eventTicketingAddress, txOptions);
+          });
+          
+          await contractCallWithRetry(async () => {
+            await grantTx.wait();
+            return true;
+          });
+          
           console.log("Minting permission set successfully");
         } else {
           console.log("Minting permission already set");

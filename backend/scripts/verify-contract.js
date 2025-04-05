@@ -8,6 +8,38 @@
 const { run } = require("hardhat");
 require('dotenv').config();
 
+// 添加延迟函数
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+// 添加带重试的函数执行
+async function withRetry(fn, options = {}) {
+  const maxRetries = options.maxRetries || 3;
+  const initialDelay = options.initialDelay || 5000;
+  const description = options.description || "操作";
+  
+  let lastError;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      // 检查是否为"Too Many Requests"错误或其他可重试错误
+      if ((error.message && error.message.includes("Too Many Requests") || 
+           error.message && error.message.includes("rate limit") ||
+           error.message && error.message.includes("timeout")) && 
+          attempt < maxRetries - 1) {
+        const waitTime = initialDelay * Math.pow(2, attempt); // 指数退避
+        console.log(`${description}遇到错误: ${error.message}`);
+        console.log(`等待${waitTime/1000}秒后重试 (${attempt + 1}/${maxRetries})...`);
+        await delay(waitTime);
+      } else {
+        throw error;
+      }
+    }
+  }
+  throw lastError;
+}
+
 async function main() {
   console.log("开始合约验证流程...");
 
@@ -32,10 +64,19 @@ async function main() {
     // 验证EventTicketNFT合约
     console.log("\n正在验证EventTicketNFT合约...");
     try {
-      await run("verify:verify", {
-        address: eventTicketNFTAddress,
-        constructorArguments: [],
-      });
+      await withRetry(
+        async () => {
+          await run("verify:verify", {
+            address: eventTicketNFTAddress,
+            constructorArguments: [],
+          });
+        },
+        { 
+          maxRetries: 5, 
+          initialDelay: 10000, 
+          description: "EventTicketNFT验证" 
+        }
+      );
       console.log("✅ EventTicketNFT合约验证成功!");
     } catch (error) {
       if (error.message.includes("Already Verified")) {
@@ -59,14 +100,23 @@ async function main() {
     // 验证EventTicketing合约
     console.log("\n正在验证EventTicketing合约...");
     try {
-      await run("verify:verify", {
-        address: eventTicketingAddress,
-        constructorArguments: [
-          eventTicketNFTAddress,
-          worldIDVerifierAddress,
-          crossChainBridgeAddress
-        ],
-      });
+      await withRetry(
+        async () => {
+          await run("verify:verify", {
+            address: eventTicketingAddress,
+            constructorArguments: [
+              eventTicketNFTAddress,
+              worldIDVerifierAddress,
+              crossChainBridgeAddress
+            ],
+          });
+        },
+        { 
+          maxRetries: 5, 
+          initialDelay: 10000, 
+          description: "EventTicketing验证" 
+        }
+      );
       console.log("✅ EventTicketing合约验证成功!");
     } catch (error) {
       if (error.message.includes("Already Verified")) {
