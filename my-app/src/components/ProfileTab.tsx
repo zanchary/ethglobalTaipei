@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { SignOutButton } from "@/components/sign-out-button";
+import { signOut } from "next-auth/react";
+import { CircleUser, LogOut } from "lucide-react";
 import { Event } from "@/components/Event";
 import {
   Dialog,
@@ -129,12 +129,14 @@ export function ProfileTab({ user, organizedEvents }: ProfileTabProps) {
   };
 
   return (
-    <div className="flex flex-col items-center gap-4">
-      <Avatar className="w-32 h-32">
-        <AvatarFallback>{user.name[0]}</AvatarFallback>
-      </Avatar>
+    <div className="relative flex flex-col items-center gap-4">
+      <div className="absolute top-4 right-4">
+        <Button variant="ghost" size="icon" onClick={() => signOut()}>
+          <LogOut strokeWidth={3} />
+        </Button>
+      </div>
+      <CircleUser size={120} strokeWidth={1.0} />
       <span>{user.name}</span>
-      <SignOutButton />
       <Button variant="default" className="mt-4" onClick={() => setOpen(true)}>
         Create Event
       </Button>
