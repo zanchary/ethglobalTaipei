@@ -125,9 +125,6 @@ async function main() {
       eventEndTime, // Event date (using end time)
       100, // Total tickets
       ethers.parseEther("0.01"), // Ticket price: 0.01 ETH
-      false, // Allow resale
-      0, // Resale deadline
-      "ipfs://QmTest", // Event image URI
       false // Require World ID verification
     );
 
@@ -161,6 +158,45 @@ async function main() {
           return;
         }
       } else {
+        // Check if the event has the expected number of arguments
+        // 注意：Event结构体有10个字段，但EventCreated事件现在只有7个参数
+        // 这是为了避免"Stack too deep"错误，将事件参数减少到必要的关键字段
+        console.log("EventCreated event found with args:");
+        
+        // 确保事件有正确数量的参数
+        if (eventCreatedEvent.args.length !== 7) {
+          console.warn(`警告：EventCreated事件应该有7个参数，但实际有${eventCreatedEvent.args.length}个`);
+        }
+        
+        // 正确地解析和记录7个参数
+        console.log({
+          eventId: eventCreatedEvent.args[0].toString(),
+          name: eventCreatedEvent.args[1],
+          totalTickets: eventCreatedEvent.args[2].toString(),
+          ticketPrice: ethers.formatEther(eventCreatedEvent.args[3]),
+          organizer: eventCreatedEvent.args[4],
+          eventDate: new Date(Number(eventCreatedEvent.args[5]) * 1000).toISOString(),
+          worldIdRequired: eventCreatedEvent.args[6]
+        });
+        
+        // 添加解释，说明Event结构体与事件参数的对应关系
+        console.log(`
+注意：Event结构体有10个字段，而EventCreated事件只发出7个参数：
+1. eventId - 事件ID（自动生成的）
+2. name - 事件名称
+3. totalTickets - 总票数
+4. ticketPrice - 票价
+5. organizer - 组织者地址
+6. eventDate - 事件日期
+7. worldIdRequired - 是否需要World ID验证
+
+而Event结构体的其他字段如下：
+- description - 在事件中未包含
+- ticketsSold - 初始为0，不需要包含在事件中
+- isActive - 总是初始化为true，不需要包含在事件中
+- verifiedAttendees - 这是一个映射，无法包含在事件中
+`);
+        
         eventId = eventCreatedEvent.args[0]; // First parameter is eventId
       }
       
@@ -248,6 +284,31 @@ async function main() {
           }
         }
       } else {
+        // 验证TicketMinted事件有正确数量的参数
+        if (ticketMintedEvent.args.length !== 4) {
+          console.warn(`警告：TicketMinted事件应该有4个参数，但实际有${ticketMintedEvent.args.length}个`);
+        }
+        
+        // 正确地解析和记录所有4个参数
+        console.log("TicketMinted event found with args:");
+        console.log({
+          tokenId: ticketMintedEvent.args[0].toString(),
+          eventId: ticketMintedEvent.args[1].toString(),
+          buyer: ticketMintedEvent.args[2],
+          price: ethers.formatEther(ticketMintedEvent.args[3])
+        });
+        
+        // 添加解释，说明TicketMinted事件只包含4个关键参数
+        console.log(`
+注意：TicketMinted事件包含4个参数：
+1. tokenId - 票据NFT的令牌ID
+2. eventId - 关联的活动ID
+3. buyer - 购买者地址
+4. price - 购买价格
+
+更详细的票据信息可以通过NFT合约的getTicketInfo()函数获取。
+`);
+        
         ticketId1 = ticketMintedEvent.args[0]; // First parameter is tokenId
       }
       

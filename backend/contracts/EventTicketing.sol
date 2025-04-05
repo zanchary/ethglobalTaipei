@@ -28,9 +28,6 @@ contract EventTicketing is Ownable, ReentrancyGuard {
     // Platform fee percentage (in basis points, 100 = 1%)
     uint256 public platformFeePercentage = 200; // 2% default
     
-    // Maximum resale price increase (in basis points, 5000 = 50%)
-    uint256 public maxResalePriceIncrease = 5000; // 50% default
-    
     // Struct to represent an event
     struct Event {
         string name;
@@ -40,26 +37,13 @@ contract EventTicketing is Ownable, ReentrancyGuard {
         uint256 ticketsSold;
         uint256 ticketPrice;
         address organizer;
-        bool isResellAllowed;
-        uint256 resaleDeadline; // Timestamp after which resale is not allowed
-        string eventURI; // URI for event metadata/image
         bool isActive; // Whether the event is active or cancelled
         mapping(address => bool) verifiedAttendees; // Track attendance
         bool worldIdRequired; // Whether World ID verification is required
     }
     
-    // Struct for tickets listed for resale
-    struct ResaleTicket {
-        uint256 tokenId;
-        uint256 price;
-        bool isListed;
-    }
-    
     // Mapping from event ID to Event details
     mapping(uint256 => Event) public events;
-    
-    // Mapping from token ID to resale information
-    mapping(uint256 => ResaleTicket) public resaleTickets;
     
     // Mapping from organizer address to verified status
     mapping(address => bool) public verifiedOrganizers;
@@ -72,6 +56,16 @@ contract EventTicketing is Ownable, ReentrancyGuard {
     
     // Action ID for World ID verification
     string public constant WORLD_ID_ACTION = "purchase-ticket";
+    
+    // Struct to hold event creation parameters
+    struct EventCreationParams {
+        string name;
+        string description;
+        uint256 eventDate;
+        uint256 totalTickets;
+        uint256 ticketPrice;
+        bool worldIdRequired;
+    }
     
     // Events for tracking actions
     event EventCreated(
@@ -89,18 +83,6 @@ contract EventTicketing is Ownable, ReentrancyGuard {
     event TicketMinted(
         uint256 indexed tokenId,
         uint256 indexed eventId,
-        address indexed buyer,
-        uint256 price
-    );
-    
-    event TicketListedForResale(
-        uint256 indexed tokenId,
-        uint256 price
-    );
-    
-    event TicketResold(
-        uint256 indexed tokenId,
-        address indexed seller,
         address indexed buyer,
         uint256 price
     );
@@ -190,15 +172,6 @@ contract EventTicketing is Ownable, ReentrancyGuard {
     }
     
     /**
-     * @dev Sets the maximum resale price increase (in basis points).
-     * @param newMaxIncrease The new maximum increase (e.g., 5000 for 50%).
-     */
-    function setMaxResalePriceIncrease(uint256 newMaxIncrease) external onlyOwner {
-        require(newMaxIncrease <= 10000, "Increase too high"); // Max 100%
-        maxResalePriceIncrease = newMaxIncrease;
-    }
-    
-    /**
      * @dev Updates the platform admin address.
      * @param newAdmin The new admin address.
      */
@@ -223,9 +196,6 @@ contract EventTicketing is Ownable, ReentrancyGuard {
      * @param eventDate Timestamp of when the event will occur.
      * @param totalTickets The total number of tickets available.
      * @param ticketPrice The price per ticket in wei.
-     * @param isResellAllowed Whether tickets can be resold.
-     * @param resaleDeadline Timestamp after which resale is not allowed.
-     * @param eventURI URI for event metadata and image.
      * @param worldIdRequired Whether World ID verification is required for purchase.
      * @return The ID of the created event.
      */
@@ -235,15 +205,11 @@ contract EventTicketing is Ownable, ReentrancyGuard {
         uint256 eventDate,
         uint256 totalTickets,
         uint256 ticketPrice,
-        bool isResellAllowed,
-        uint256 resaleDeadline,
-        string memory eventURI,
         bool worldIdRequired
     ) public onlyVerifiedOrganizer returns (uint256) {
         require(totalTickets > 0, "Total tickets must be greater than zero");
         require(ticketPrice > 0, "Ticket price must be greater than zero");
         require(eventDate > block.timestamp, "Event date must be in the future");
-        require(resaleDeadline <= eventDate, "Resale deadline must be before event date");
         
         uint256 eventId = nextEventId;
         nextEventId++;
@@ -256,18 +222,15 @@ contract EventTicketing is Ownable, ReentrancyGuard {
         newEvent.ticketsSold = 0;
         newEvent.ticketPrice = ticketPrice;
         newEvent.organizer = msg.sender;
-        newEvent.isResellAllowed = isResellAllowed;
-        newEvent.resaleDeadline = resaleDeadline;
-        newEvent.eventURI = eventURI;
         newEvent.isActive = true;
         newEvent.worldIdRequired = worldIdRequired;
         
         emit EventCreated(
-            eventId, 
-            name, 
-            totalTickets, 
-            ticketPrice, 
-            msg.sender, 
+            eventId,
+            name,
+            totalTickets,
+            ticketPrice,
+            msg.sender,
             eventDate,
             worldIdRequired
         );
@@ -309,14 +272,15 @@ contract EventTicketing is Ownable, ReentrancyGuard {
         (bool paySuccess, ) = payable(evt.organizer).call{value: organizerAmount}("");
         require(paySuccess, "Organizer payment failed");
         
-        // Generate ticket URI (in a real system, this would create dynamic metadata)
+        // Generate simple ticket URI
         string memory ticketURI = string(abi.encodePacked(
-            evt.eventURI, 
-            "/ticket/", 
+            "ticket://", 
+            _toString(eventId),
+            "/",
             _toString(ticketIndex)
         ));
         
-        // Mint the NFT ticket through the NFT contract
+        // Mint the NFT ticket
         uint256 tokenId = ticketNFT.mintTicket(
             msg.sender, 
             eventId, 
@@ -332,112 +296,6 @@ contract EventTicketing is Ownable, ReentrancyGuard {
         emit TicketMinted(tokenId, eventId, msg.sender, msg.value);
         
         return tokenId;
-    }
-    
-    /**
-     * @dev Allows ticket owners to list their tickets for resale.
-     * @param tokenId The ID of the ticket to resell.
-     * @param price The resale price.
-     */
-    function listTicketForResale(uint256 tokenId, uint256 price) public {
-        // Check ownership
-        address owner = ticketNFT.ownerOf(tokenId);
-        require(owner == msg.sender, "Not ticket owner");
-
-        // Get ticket info from the NFT contract
-        EventTicketNFT.TicketInfo memory ticket = ticketNFT.getTicketInfo(tokenId);
-        uint256 eventId = ticket.eventId;
-        Event storage evt = events[eventId];
-
-        require(evt.isActive, "Event is not active");
-        require(evt.isResellAllowed, "Resale not allowed for this event");
-        require(!ticketNFT.isTicketUsed(tokenId), "Ticket has already been used");
-        require(block.timestamp < evt.resaleDeadline, "Resale deadline passed");
-
-        // Check that resale price is not too high
-        uint256 maxPrice = ticket.purchasePrice + ((ticket.purchasePrice * maxResalePriceIncrease) / 10000);
-        require(price <= maxPrice, "Resale price too high");
-
-        // REMOVE THIS LINE - Don't call approve from within the contract:
-        // ticketNFT.approve(address(this), tokenId);
-
-        // List the ticket for resale
-        resaleTickets[tokenId] = ResaleTicket({
-            tokenId: tokenId,
-            price: price,
-            isListed: true
-        });
-
-        emit TicketListedForResale(tokenId, price);
-    }
-    
-    /**
-     * @dev Allows users to buy a resale ticket.
-     * @param tokenId The ID of the ticket to purchase.
-     */
-    function buyResaleTicket(uint256 tokenId) 
-        public 
-        payable 
-        nonReentrant 
-    {
-        ResaleTicket storage resale = resaleTickets[tokenId];
-        require(resale.isListed, "Ticket not for sale");
-
-        // Get ticket info and event details
-        EventTicketNFT.TicketInfo memory ticket = ticketNFT.getTicketInfo(tokenId);
-        uint256 eventId = ticket.eventId;
-        Event storage evt = events[eventId];
-        
-        // Check if World ID verification is required
-        if (evt.worldIdRequired) {
-            require(
-                worldIDVerifier.isVerified(msg.sender),
-                "World ID verification required"
-            );
-        }
-
-        require(evt.isActive, "Event is not active");
-        require(block.timestamp < evt.eventDate, "Event has already occurred");
-        require(block.timestamp < evt.resaleDeadline, "Resale deadline passed");
-        require(msg.value == resale.price, "Incorrect payment");
-
-        address seller = ticketNFT.ownerOf(tokenId);
-        require(seller != msg.sender, "Cannot buy your own ticket");
-
-        // Calculate platform fee for resale
-        uint256 platformFee = (msg.value * platformFeePercentage) / 10000;
-        uint256 sellerAmount = msg.value - platformFee;
-
-        // Transfer platform fee to admin
-        (bool feeSuccess, ) = platformAdmin.call{value: platformFee}("");
-        require(feeSuccess, "Platform fee transfer failed");
-
-        // Transfer remaining amount to seller
-        (bool paySuccess, ) = payable(seller).call{value: sellerAmount}("");
-        require(paySuccess, "Seller payment failed");
-
-        // Update resale status
-        resale.isListed = false;
-
-        // Transfer the NFT from seller to buyer
-        ticketNFT.safeTransferFrom(seller, msg.sender, tokenId);
-
-        emit TicketResold(tokenId, seller, msg.sender, msg.value);
-    }
-    
-    /**
-     * @dev Cancels a ticket listing.
-     * @param tokenId The ID of the ticket to delist.
-     */
-    function cancelResaleListing(uint256 tokenId) public {
-        // Check ownership
-        address owner = ticketNFT.ownerOf(tokenId);
-        require(owner == msg.sender, "Not ticket owner");
-        
-        ResaleTicket storage resale = resaleTickets[tokenId];
-        require(resale.isListed, "Ticket not listed for resale");
-        
-        resale.isListed = false;
     }
     
     /**
@@ -516,9 +374,6 @@ contract EventTicketing is Ownable, ReentrancyGuard {
      * @return ticketsSold Number of tickets sold
      * @return ticketPrice Price per ticket
      * @return organizer Address of event organizer
-     * @return isResellAllowed Whether resale is allowed
-     * @return resaleDeadline Deadline for resales
-     * @return eventURI URI for event metadata
      * @return isActive Whether the event is active
      * @return worldIdRequired Whether World ID verification is required
      */
@@ -530,9 +385,6 @@ contract EventTicketing is Ownable, ReentrancyGuard {
         uint256 ticketsSold,
         uint256 ticketPrice,
         address organizer,
-        bool isResellAllowed,
-        uint256 resaleDeadline,
-        string memory eventURI,
         bool isActive,
         bool worldIdRequired
     ) {
@@ -546,9 +398,6 @@ contract EventTicketing is Ownable, ReentrancyGuard {
             evt.ticketsSold,
             evt.ticketPrice,
             evt.organizer,
-            evt.isResellAllowed,
-            evt.resaleDeadline,
-            evt.eventURI,
             evt.isActive,
             evt.worldIdRequired
         );
@@ -833,10 +682,11 @@ contract EventTicketing is Ownable, ReentrancyGuard {
         (bool paySuccess, ) = payable(evt.organizer).call{value: organizerAmount}("");
         require(paySuccess, "Organizer payment failed");
         
-        // Generate ticket URI
+        // Generate simple ticket URI
         string memory ticketURI = string(abi.encodePacked(
-            evt.eventURI, 
-            "/ticket/", 
+            "ticket://", 
+            _toString(eventId),
+            "/",
             _toString(ticketIndex)
         ));
         

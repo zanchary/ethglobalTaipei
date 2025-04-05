@@ -48,16 +48,10 @@ async function main() {
   const createEventTx = await eventTicketing.connect(organizer).createEvent(
     "测试活动", // 名称
     "这是一个简单的测试活动", // 描述
-    currentTime, // 开始时间
-    eventStartTime, // 结束时间
-    eventEndTime, // 结束时间
+    eventEndTime, // 活动时间（使用结束时间）
     100, // 总票数
     ethers.parseEther("0.01"), // 票价：0.01 ETH
-    false, // 是否允许转售
-    0, // 转售截止时间
-    "ipfs://QmTest", // 活动图片URI
-    false, // 是否需要World ID验证
-    { value: ethers.parseEther("0.01") } // 创建活动需要支付平台费用
+    false // 是否需要World ID验证
   );
 
   console.log("等待创建活动交易确认...");
