@@ -67,6 +67,18 @@ async function main() {
     return;
   }
   
+  // 记录事件参数详情
+  console.log("事件详细信息:", {
+    eventId: eventCreatedEvent.args[0].toString(),
+    name: eventCreatedEvent.args[1],
+    description: eventCreatedEvent.args[2],
+    eventDate: new Date(Number(eventCreatedEvent.args[3]) * 1000).toISOString(),
+    totalTickets: eventCreatedEvent.args[4].toString(),
+    ticketPrice: ethers.formatEther(eventCreatedEvent.args[5]),
+    organizer: eventCreatedEvent.args[6],
+    worldIdRequired: eventCreatedEvent.args[7]
+  });
+  
   const eventId = eventCreatedEvent.args[0]; // 第一个参数是eventId
   console.log(`活动创建成功，ID: ${eventId}`);
 
@@ -166,14 +178,18 @@ async function main() {
   // 5. 测试检票功能
   console.log("\n测试检票功能...");
   // 由活动组织者检票
-  const validateTicketTx = await eventTicketing.connect(organizer).validateTicket(eventId, ticketId1);
-  await validateTicketTx.wait();
+  const useTicketTx = await eventTicketing.connect(organizer).useTicket(ticketId1);
+  await useTicketTx.wait();
   console.log(`参与者1的门票已被验证`);
   
   // 检查门票状态
-  const isValidated = await eventTicketing.isTicketValidated(eventId, ticketId1);
-  console.log(`参与者1的门票验证状态: ${isValidated ? "已验证" : "未验证"}`);
+  const isUsed = await eventTicketNFT.isTicketUsed(ticketId1);
+  console.log(`参与者1的门票使用状态: ${isUsed ? "已使用" : "未使用"}`);
   
+  // 检查出席记录
+  const hasAttended = await eventTicketing.hasAttended(eventId, attendee1.address);
+  console.log(`参与者1的出席记录: ${hasAttended ? "已出席" : "未出席"}`);
+
   console.log("\n基本票务功能测试完成！");
 }
 

@@ -159,39 +159,40 @@ async function main() {
         }
       } else {
         // Check if the event has the expected number of arguments
-        // 注意：Event结构体有10个字段，但EventCreated事件现在只有7个参数
-        // 这是为了避免"Stack too deep"错误，将事件参数减少到必要的关键字段
+        // 注意：Event结构体有10个字段，但EventCreated事件现在有8个参数
+        // 这是为了避免"Stack too deep"错误，将事件参数减少到必要的字段
         console.log("EventCreated event found with args:");
         
         // 确保事件有正确数量的参数
-        if (eventCreatedEvent.args.length !== 7) {
-          console.warn(`警告：EventCreated事件应该有7个参数，但实际有${eventCreatedEvent.args.length}个`);
+        if (eventCreatedEvent.args.length !== 8) {
+          console.warn(`警告：EventCreated事件应该有8个参数，但实际有${eventCreatedEvent.args.length}个`);
         }
         
-        // 正确地解析和记录7个参数
+        // 正确地解析和记录8个参数
         console.log({
           eventId: eventCreatedEvent.args[0].toString(),
           name: eventCreatedEvent.args[1],
-          totalTickets: eventCreatedEvent.args[2].toString(),
-          ticketPrice: ethers.formatEther(eventCreatedEvent.args[3]),
-          organizer: eventCreatedEvent.args[4],
-          eventDate: new Date(Number(eventCreatedEvent.args[5]) * 1000).toISOString(),
-          worldIdRequired: eventCreatedEvent.args[6]
+          description: eventCreatedEvent.args[2],
+          eventDate: new Date(Number(eventCreatedEvent.args[3]) * 1000).toISOString(),
+          totalTickets: eventCreatedEvent.args[4].toString(),
+          ticketPrice: ethers.formatEther(eventCreatedEvent.args[5]),
+          organizer: eventCreatedEvent.args[6],
+          worldIdRequired: eventCreatedEvent.args[7]
         });
         
         // 添加解释，说明Event结构体与事件参数的对应关系
         console.log(`
-注意：Event结构体有10个字段，而EventCreated事件只发出7个参数：
+注意：Event结构体有10个字段，而EventCreated事件包含8个参数：
 1. eventId - 事件ID（自动生成的）
 2. name - 事件名称
-3. totalTickets - 总票数
-4. ticketPrice - 票价
-5. organizer - 组织者地址
-6. eventDate - 事件日期
-7. worldIdRequired - 是否需要World ID验证
+3. description - 事件描述
+4. eventDate - 事件日期
+5. totalTickets - 总票数
+6. ticketPrice - 票价
+7. organizer - 组织者地址
+8. worldIdRequired - 是否需要World ID验证
 
 而Event结构体的其他字段如下：
-- description - 在事件中未包含
 - ticketsSold - 初始为0，不需要包含在事件中
 - isActive - 总是初始化为true，不需要包含在事件中
 - verifiedAttendees - 这是一个映射，无法包含在事件中

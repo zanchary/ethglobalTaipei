@@ -71,10 +71,11 @@ contract EventTicketing is Ownable, ReentrancyGuard {
     event EventCreated(
         uint256 indexed eventId,
         string name,
+        string description,
+        uint256 eventDate,
         uint256 totalTickets,
         uint256 ticketPrice,
         address indexed organizer,
-        uint256 eventDate,
         bool worldIdRequired
     );
     
@@ -228,10 +229,11 @@ contract EventTicketing is Ownable, ReentrancyGuard {
         emit EventCreated(
             eventId,
             name,
+            description,
+            eventDate,
             totalTickets,
             ticketPrice,
             msg.sender,
-            eventDate,
             worldIdRequired
         );
         
