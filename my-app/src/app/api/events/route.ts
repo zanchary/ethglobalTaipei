@@ -5,22 +5,22 @@ export async function GET() {
   const events = [
     {
       id: 1,
-      title: "Event 1",
-      organizer: "Organizer 1",
-      date: "2025-04-05"
+      title: "ETH Taipei",
+      organizer: "m4xshen.0955",
+      date: "2025-04-05",
     },
     {
       id: 2,
-      title: "Event 2",
-      organizer: "Organizer 2",
-      date: "2025-05-05"
+      title: "Next.js Conf 2025",
+      organizer: "test.1234",
+      date: "2025-05-05",
     },
     {
       id: 3,
-      title: "Event 3",
-      organizer: "Organizer 3",
-      date: "2025-06-05"
-    }
+      title: "COSCUP",
+      organizer: "test.5678",
+      date: "2025-06-05",
+    },
   ];
   return NextResponse.json({ events });
 }

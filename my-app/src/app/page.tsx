@@ -6,6 +6,7 @@ import { SignOutButton } from "@/components/sign-out-button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useState, useEffect } from "react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { EventList } from "@/components/EventList";
 
 interface Event {
   id: number;
@@ -40,19 +41,7 @@ export default function Page() {
       {session?.user ? (
         <div className="flex flex-col gap-4 flex-1 w-full">
           {activeTab === "events" && (
-            <div className="flex flex-col gap-4">
-              {events.map((event) => (
-                <Card key={event.id}>
-                  <CardHeader>
-                    <CardTitle>{event.title}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p>Organized by: {event.organizer}</p>
-                    <p>Date: {event.date}</p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+            <EventList events={events} />
           )}
           {activeTab === "profile" && (
             <div className="flex flex-col items-center gap-4">
