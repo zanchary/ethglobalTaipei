@@ -2,10 +2,9 @@
 
 import { WalletAuthButton } from "@/components/wallet-auth-button";
 import { useSession } from "next-auth/react";
-import { SignOutButton } from "@/components/sign-out-button";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { ProfileTab } from "@/components/ProfileTab";
 import { useState, useEffect } from "react";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Event } from "@/components/Event";
 
 interface Event {
   id: number;
@@ -35,6 +34,10 @@ export default function Page() {
     }
   }, [session]);
 
+  const organizedEvents = session?.user
+    ? events.filter((event) => event.organizer === session.user.name)
+    : [];
+
   return (
     <div className="flex p-6 items-center w-full justify-center flex-col h-[100dvh] bg-white text-black safe-area-inset">
       {session?.user ? (
@@ -42,26 +45,12 @@ export default function Page() {
           {activeTab === "events" && (
             <div className="flex flex-col gap-4">
               {events.map((event) => (
-                <Card key={event.id}>
-                  <CardHeader>
-                    <CardTitle>{event.title}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p>Organized by: {event.organizer}</p>
-                    <p>Date: {event.date}</p>
-                  </CardContent>
-                </Card>
+                <Event key={event.id} event={event} />
               ))}
             </div>
           )}
           {activeTab === "profile" && (
-            <div className="flex flex-col items-center gap-4">
-              <Avatar className="w-32 h-32">
-                <AvatarFallback>{session.user.name[0]}</AvatarFallback>
-              </Avatar>
-              <span>{session.user.name}</span>
-              <SignOutButton />
-            </div>
+            <ProfileTab user={session.user} organizedEvents={organizedEvents} />
           )}
           <div className="fixed bottom-6 left-0 right-0 flex justify-around border-t p-4 bg-white">
             <button
