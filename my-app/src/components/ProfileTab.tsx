@@ -23,9 +23,7 @@ import { createPublicClient, http } from "viem";
 import { worldchain } from "@/lib/chains";
 
 interface ProfileTabProps {
-  user: {
-    name: string;
-  };
+  user: any;
   organizedEvents: any[];
 }
 
@@ -88,6 +86,13 @@ export function ProfileTab({ user, organizedEvents }: ProfileTabProps) {
 
     const timestamp = Math.floor(new Date(eventDate).getTime() / 1000);
 
+    console.log("user.address");
+    console.log(user.address);
+    
+    // Convert totalTickets to a number and ticketPrice (ETH) to wei as BigInt
+    const numericTotalTickets = parseInt(totalTickets);
+    const numericTicketPrice = BigInt(Math.floor(parseFloat(ticketPrice) * 1e18));
+
     try {
       const { commandPayload, finalPayload } =
         await MiniKit.commandsAsync.sendTransaction({
@@ -100,9 +105,10 @@ export function ProfileTab({ user, organizedEvents }: ProfileTabProps) {
                 eventName,
                 eventDescription,
                 timestamp,
-                totalTickets,
-                ticketPrice,
+                numericTotalTickets,
+                numericTicketPrice,
                 worldIdRequired,
+                user.address,
               ],
             },
           ],

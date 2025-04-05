@@ -6,7 +6,8 @@
       { "internalType": "uint256", "name": "eventDate", "type": "uint256" },
       { "internalType": "uint256", "name": "totalTickets", "type": "uint256" },
       { "internalType": "uint256", "name": "ticketPrice", "type": "uint256" },
-      { "internalType": "bool", "name": "worldIdRequired", "type": "bool" }
+      { "internalType": "bool", "name": "worldIdRequired", "type": "bool" },
+      { "internalType": "address", "name": "organizer", "type": "address" }
     ],
     "name": "createEvent",
     "outputs": [

@@ -23,7 +23,7 @@ export default function Page() {
       try {
         const res = await fetch("/api/events");
         const data = await res.json();
-        setEvents(data.events);
+        setEvents(data.events || []);
       } catch (error) {
         console.error(error);
       }
