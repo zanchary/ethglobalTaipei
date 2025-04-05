@@ -7,6 +7,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useState, useEffect } from "react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { EventList } from "@/components/EventList";
+import { Event } from "@/components/Event";
 
 interface Event {
   id: number;
@@ -41,7 +42,11 @@ export default function Page() {
       {session?.user ? (
         <div className="flex flex-col gap-4 flex-1 w-full">
           {activeTab === "events" && (
-            <EventList events={events} />
+            <div className="flex flex-col gap-4">
+              {events.map((event) => (
+                <Event key={event.id} event={event} />
+              ))}
+            </div>
           )}
           {activeTab === "profile" && (
             <div className="flex flex-col items-center gap-4">
