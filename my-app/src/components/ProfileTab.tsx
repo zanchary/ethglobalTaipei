@@ -112,21 +112,11 @@ export function ProfileTab({ user, organizedEvents }: ProfileTabProps) {
       console.log(finalPayload);
 
       setTxStatus(
-        "交易已提交. 交易ID: " + finalPayload.transaction_id
+        "Transaction submitted. Transaction ID: " + finalPayload.transaction_id
       );
       setOpen(false);
     } catch (error: any) {
-      console.error("交易错误详情:", error);
-      // 提供更友好的错误信息
-      if (error.message.includes("simulation failed")) {
-        setTxStatus("交易模拟失败: 请检查输入参数，确保票价和日期有效。详细错误: " + error.message);
-      } else if (error.message.includes("insufficient funds")) {
-        setTxStatus("余额不足: 您的账户没有足够的资金支付交易费用");
-      } else if (error.message.includes("user rejected")) {
-        setTxStatus("交易被用户拒绝");
-      } else {
-        setTxStatus("交易失败: " + error.message);
-      }
+      console.error("Transaction error details:", error);
     }
   };
 
@@ -185,7 +175,7 @@ export function ProfileTab({ user, organizedEvents }: ProfileTabProps) {
               />
               <input
                 type="text"
-                placeholder="票价 (ETH，例如: 0.001)"
+                placeholder="Ticket Price (ETH, e.g.: 0.001)"
                 value={ticketPrice}
                 onChange={(e) => setTicketPrice(e.target.value)}
                 className="input"

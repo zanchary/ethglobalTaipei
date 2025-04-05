@@ -23,10 +23,9 @@ export default function Page() {
       try {
         const res = await fetch("/api/events");
         const data = await res.json();
-        console.log("获取的事件数据:", data.events);
         setEvents(data.events);
       } catch (error) {
-        console.error("获取事件列表错误:", error);
+        console.error(error);
       }
     }
 
@@ -35,22 +34,19 @@ export default function Page() {
     }
   }, [session]);
 
+  console.log("events", events);
+
   const organizedEvents = session?.user
     ? events.filter((event) => {
-        // 检查地址格式并规范化比较
-        const eventAddress = (typeof event.organizer === 'string') 
-          ? event.organizer.toLowerCase() 
-          : String(event.organizer);
-          
-        const userAddress = session.user.address 
-          ? session.user.address.toLowerCase() 
-          : '';
-          
-        // 在开发环境下打印调试信息
-        if (process.env.NODE_ENV === 'development') {
-          console.log(`比较地址 - 事件: ${eventAddress}, 用户: ${userAddress}`);
-        }
-        
+        const eventAddress =
+          typeof event.organizer === "string"
+            ? event.organizer.toLowerCase()
+            : String(event.organizer);
+
+        const userAddress = session.user.address
+          ? session.user.address.toLowerCase()
+          : "";
+
         return eventAddress === userAddress;
       })
     : [];
